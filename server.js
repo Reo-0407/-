@@ -405,17 +405,27 @@ function resolveNumberMatch(cg) {
 }
 
 function resolveAverageGuess(cg) {
-  const vals = Object.values(cg.submissions).map(Number);
+  const entries = Object.entries(cg.submissions).map(([id, v]) => [id, Number(v)]);
+  const vals = entries.map(([, v]) => v);
   const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
   const success = Math.abs(avg - cg.data.target) <= cg.data.tolerance;
   if (success) {
     eligiblePlayerIds().forEach((id) => addScore(id, 1));
   }
+
+  let closestText = '';
+  if (entries.length) {
+    const minDiff = Math.min(...entries.map(([, v]) => Math.abs(v - cg.data.target)));
+    const closestIds = entries.filter(([, v]) => Math.abs(v - cg.data.target) === minDiff).map(([id]) => id);
+    closestIds.forEach((id) => addScore(id, 1));
+    closestText = ` 목표에 가장 가까웠던 사람: ${closestIds.map((id) => nameOf(id)).join(', ')} (+1점 보너스)`;
+  }
+
   cg.finalSummary = {
     success,
     text: `평균 ${avg.toFixed(1)} (목표 ${cg.data.target}±${cg.data.tolerance}) → ${
       success ? '성공! 전원 +1점' : '실패!'
-    }`,
+    }${closestText}`,
     choices: cg.submissions
   };
 }
@@ -545,14 +555,14 @@ function resolveLieDetector(cg) {
   if (majorityGuess === 'tie') {
     outcomeText = '투표가 반반으로 갈렸어요! 무승부, 벌칙 없음.';
   } else if (majorityGuess === actualAnswer) {
-    penaltyTargets = [cg.data.actorId];
-    outcomeText = `다수결로 정답을 맞췄어요! ${nameOf(cg.data.actorId)} 님이 벌칙 대상!`;
+    // 다수결이 정답이면 벌칙 없음 (진실을 진실로, 거짓을 거짓으로 잘 알아챈 것뿐)
+    outcomeText = '다수결로 정답을 맞췄어요! 벌칙 없음.';
   } else {
     penaltyTargets = Object.entries(votes)
       .filter(([, v]) => v !== actualAnswer)
       .map(([id]) => id);
     addScore(cg.data.actorId, 2);
-    outcomeText = `다수결이 틀렸어요! ${nameOf(cg.data.actorId)} 님 연기 성공 (+2점). 잘못 투표한 사람들이 벌칙 대상!`;
+    outcomeText = `다수결이 틀렸어요! ${nameOf(cg.data.actorId)} 님이 다들 헷갈리게 만들었어요 (+2점). 잘못 투표한 사람들이 벌칙 대상!`;
   }
 
   cg.finalSummary = {
