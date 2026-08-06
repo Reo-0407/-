@@ -18,6 +18,7 @@ const GAME_DEFS = {
     name: '숫자 맞추기 대전',
     category: '협동',
     teamBased: false,
+    minPlayers: 1,
     duration: 15,
     tutorialText:
       '제한시간 15초 안에 1~5 중 마음에 드는 숫자를 하나 골라주세요.\n' +
@@ -29,14 +30,47 @@ const GAME_DEFS = {
     name: '평균 맞추기',
     category: '협동',
     teamBased: false,
+    minPlayers: 1,
     duration: 20,
-    tutorialText: null // 라운드 시작 시 목표값 포함해서 동적으로 생성
+    tutorialText: null
+  },
+  sumTarget: {
+    id: 'sumTarget',
+    name: '총합 맞추기',
+    category: '협동',
+    teamBased: false,
+    minPlayers: 1,
+    duration: 20,
+    tutorialText: null
+  },
+  colorCollect: {
+    id: 'colorCollect',
+    name: '색깔 다 모으기',
+    category: '협동',
+    teamBased: false,
+    minPlayers: 1,
+    duration: 25,
+    tutorialText: null
+  },
+  orderRelay: {
+    id: 'orderRelay',
+    name: '순서 릴레이',
+    category: '협동',
+    teamBased: false,
+    minPlayers: 2,
+    duration: 45,
+    tutorialText:
+      '모두에게 비밀 순서(1번부터)가 주어졌어요. 자기 순서가 몇 번인지는 알 수 없어요!\n' +
+      '1번부터 순서대로 버튼을 눌러야 다음 단계로 진행돼요.\n' +
+      '틀린 사람이 누르면 처음부터 다시 시작!\n' +
+      '서로 눈치를 보며 소통해서 순서를 맞춰보세요.'
   },
   noticeGame: {
     id: 'noticeGame',
     name: '눈치게임',
     category: '대결',
     teamBased: true,
+    minPlayers: 2,
     duration: 12,
     tutorialText:
       '1부터 "생존자 수"까지 중 숫자를 하나 골라주세요 (겹치면 안 돼요!).\n' +
@@ -45,20 +79,49 @@ const GAME_DEFS = {
       '마지막까지 살아남는 사람이 최종 승리자예요. 같은 팀 친구가 우승하면 팀 전원 보너스 점수!\n' +
       '여러 라운드에 걸쳐 진행됩니다.'
   },
+  reactionDuel: {
+    id: 'reactionDuel',
+    name: '반응속도 1:1',
+    category: '대결',
+    teamBased: false,
+    minPlayers: 2,
+    duration: 10,
+    tutorialText: null
+  },
   bombNumber: {
     id: 'bombNumber',
     name: '폭탄 숫자 피하기',
     category: '벌칙',
     teamBased: false,
+    minPlayers: 1,
     duration: 10,
     tutorialText:
       '1~5 중 하나를 고르세요.\n' +
       '그 중 하나는 미리 정해진 "폭탄 숫자"예요 (아무도 몰라요!).\n' +
       '폭탄 숫자를 고른 사람은 벌칙 대상이 됩니다.'
+  },
+  lieDetector: {
+    id: 'lieDetector',
+    name: '거짓말 탐지 투표',
+    category: '벌칙',
+    teamBased: false,
+    minPlayers: 2,
+    duration: 30,
+    tutorialText: null
   }
 };
 
-const GENDER_LABEL = { m: '남', f: '여', na: '비공개' };
+const LIE_PROMPTS = [
+  '어렸을 때 키운 반려동물 이야기',
+  '제일 좋아하는 음식',
+  '최근에 본 영화나 드라마',
+  '가장 무서워하는 것',
+  '어릴 적 꿈이었던 직업',
+  '가장 기억에 남는 여행지',
+  '제일 자신있는 요리',
+  '최근에 산 물건 중 제일 마음에 드는 것'
+];
+const COLOR_POOL = ['🔴', '🟠', '🟡', '🟢', '🔵'];
 
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -79,6 +142,7 @@ let state = createInitialState();
 let roundTimer = null;
 let roundResultTimer = null;
 let penaltyTimer = null;
+let gameInstanceCounter = 0;
 
 function connectedPlayers() {
   return state.players.filter((p) => p.connected);
@@ -106,13 +170,32 @@ function clearTimers() {
   roundResultTimer = null;
 }
 
+function shuffleTeams() {
+  const shuffled = [...state.players].sort(() => Math.random() - 0.5);
+  shuffled.forEach((p, i) => {
+    p.team = i % 2 === 0 ? 'A' : 'B';
+  });
+}
+
+function nameOf(id) {
+  const p = state.players.find((pl) => pl.id === id);
+  return p ? p.nickname : '???';
+}
+
+function pick(arr) {
+  return arr[randInt(0, arr.length - 1)];
+}
+
 // ---------------------------------------------------------------------------
 // 게임 시작 / 라운드 진행
 // ---------------------------------------------------------------------------
-function startGame(gameId) {
+function startGame(gameId, opts = {}) {
   const def = GAME_DEFS[gameId];
   if (!def) return;
+  const connected = connectedPlayers();
+  if (connected.length < (def.minPlayers || 1)) return;
   clearTimers();
+  shuffleTeams();
 
   const data = { min: 1, max: 5 };
   let tutorialText = def.tutorialText;
@@ -126,17 +209,68 @@ function startGame(gameId) {
       `1~100 사이의 숫자를 하나 골라주세요.\n` +
       `모두가 고른 숫자의 평균이 ${data.target}에 가까우면(오차 ±${data.tolerance}) 성공이에요!\n` +
       `너무 크거나 작은 숫자만 고르면 실패할 수 있어요, 서로 다른 숫자로 균형을 맞춰보세요.`;
+  } else if (gameId === 'sumTarget') {
+    data.min = 1;
+    data.max = 10;
+    const n = connected.length;
+    data.target = randInt(n * 3, n * 7);
+    tutorialText =
+      `1~10 사이의 숫자를 하나씩 골라주세요.\n` +
+      `모두가 고른 숫자를 다 더한 총합이 정확히 [${data.target}]이 되어야 성공이에요!\n` +
+      `너무 크게도, 작게도 고르지 말고 서로 상의해서 맞춰보세요.`;
+  } else if (gameId === 'colorCollect') {
+    data.colors = {};
+    connected.forEach((p) => {
+      data.colors[p.id] = pick(COLOR_POOL);
+    });
+    tutorialText =
+      '각자에게 비밀 색깔이 하나씩 배정됐어요! 자기 화면에 보이는 색깔은 바꿀 수 없어요.\n' +
+      '친구들과 말로 물어보며 5가지 색이 겹치지 않게 잘 나왔는지 알아내보세요.\n' +
+      '제한시간이 끝나면 자동으로 결과가 공개됩니다.';
+  } else if (gameId === 'orderRelay') {
+    const ids = connected.map((p) => p.id).sort(() => Math.random() - 0.5);
+    data.order = {};
+    ids.forEach((id, i) => {
+      data.order[id] = i + 1;
+    });
+    data.total = ids.length;
+    data.currentStep = 1;
+    data.mistakeCount = 0;
+    data.lastResult = null;
+    data.lastEventTs = 0;
   } else if (gameId === 'noticeGame') {
-    data.aliveIds = connectedPlayers().map((p) => p.id);
+    data.aliveIds = connected.map((p) => p.id);
+    data.initialIds = [...data.aliveIds];
     data.round = 1;
     data.max = Math.max(2, data.aliveIds.length);
     data.min = 1;
+  } else if (gameId === 'reactionDuel') {
+    const shuffled = [...connected].sort(() => Math.random() - 0.5);
+    data.competitors = [shuffled[0].id, shuffled[1].id];
+    data.signalAt = null;
+    tutorialText =
+      `⚡ 대결 상대: ${shuffled[0].nickname} VS ${shuffled[1].nickname}\n` +
+      '신호가 뜨면(버튼이 초록색으로 바뀌면) 최대한 빨리 눌러보세요!\n' +
+      '신호 뜨기 전에 누르면 실격이니 조심!\n' +
+      '나머지 분들은 응원하며 지켜봐주세요.';
   } else if (gameId === 'bombNumber') {
     data.bomb = randInt(1, 5);
+  } else if (gameId === 'lieDetector') {
+    const actor = pick(connected);
+    data.actorId = actor.id;
+    data.truth = Math.random() < 0.5;
+    data.prompt = pick(LIE_PROMPTS);
+    tutorialText =
+      `이제 ${actor.nickname} 님이 "${data.prompt}"에 대해 이야기할 거예요.\n` +
+      '진실을 말할지 거짓말을 할지는 본인만 알아요!\n' +
+      '잘 듣고 진짜인지 가짜인지 투표해서 맞춰보세요.';
   }
 
+  gameInstanceCounter += 1;
   state.currentGame = {
     gameId,
+    instanceId: gameInstanceCounter,
+    wasRandom: !!opts.random,
     name: def.name,
     category: def.category,
     teamBased: def.teamBased,
@@ -152,6 +286,23 @@ function startGame(gameId) {
   };
   state.phase = 'tutorial';
   broadcast();
+
+  if (gameId === 'lieDetector') {
+    const actorPlayer = state.players.find((p) => p.id === state.currentGame.data.actorId);
+    if (actorPlayer && actorPlayer.socketId) {
+      io.to(actorPlayer.socketId).emit('lieDetectorSecret', {
+        prompt: state.currentGame.data.prompt,
+        truth: state.currentGame.data.truth
+      });
+    }
+  }
+}
+
+function resendLieDetectorSecretIfNeeded(playerId, socketId) {
+  const cg = state.currentGame;
+  if (cg && cg.gameId === 'lieDetector' && cg.data.actorId === playerId) {
+    io.to(socketId).emit('lieDetectorSecret', { prompt: cg.data.prompt, truth: cg.data.truth });
+  }
 }
 
 function beginRound() {
@@ -161,6 +312,9 @@ function beginRound() {
   cg.phase = 'playing';
   cg.submissions = {};
   cg.roundEndsAt = Date.now() + cg.duration * 1000;
+  if (cg.gameId === 'reactionDuel') {
+    cg.data.signalAt = cg.roundEndsAt - cg.duration * 1000 + randInt(2500, 6000);
+  }
   state.phase = 'playing';
   broadcast();
   roundTimer = setTimeout(resolveRound, cg.duration * 1000);
@@ -170,6 +324,13 @@ function eligiblePlayerIds() {
   const cg = state.currentGame;
   if (!cg) return [];
   if (cg.gameId === 'noticeGame') return cg.data.aliveIds;
+  if (cg.gameId === 'reactionDuel') return cg.data.competitors;
+  if (cg.gameId === 'lieDetector') {
+    return connectedPlayers()
+      .map((p) => p.id)
+      .filter((id) => id !== cg.data.actorId);
+  }
+  if (cg.gameId === 'colorCollect' || cg.gameId === 'orderRelay') return [];
   return connectedPlayers().map((p) => p.id);
 }
 
@@ -197,11 +358,21 @@ function resolveRound() {
     resolveNumberMatch(cg);
   } else if (cg.gameId === 'averageGuess') {
     resolveAverageGuess(cg);
+  } else if (cg.gameId === 'sumTarget') {
+    resolveSumTarget(cg);
+  } else if (cg.gameId === 'colorCollect') {
+    resolveColorCollect(cg);
+  } else if (cg.gameId === 'orderRelay') {
+    resolveOrderRelayTimeout(cg);
   } else if (cg.gameId === 'noticeGame') {
     resolveNoticeGame(cg);
     return; // 자체적으로 다음 라운드/종료 처리
+  } else if (cg.gameId === 'reactionDuel') {
+    resolveReactionDuel(cg);
   } else if (cg.gameId === 'bombNumber') {
     resolveBombNumber(cg);
+  } else if (cg.gameId === 'lieDetector') {
+    resolveLieDetector(cg);
   }
   finishGame(cg);
 }
@@ -249,6 +420,55 @@ function resolveAverageGuess(cg) {
   };
 }
 
+function resolveSumTarget(cg) {
+  const vals = Object.values(cg.submissions).map(Number);
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const success = sum === cg.data.target;
+  if (success) {
+    eligiblePlayerIds().forEach((id) => addScore(id, 1));
+  }
+  cg.finalSummary = {
+    success,
+    text: `총합 ${sum} (목표 ${cg.data.target}) → ${success ? '정확히 맞았어요! 전원 +1점' : '실패!'}`,
+    choices: cg.submissions
+  };
+}
+
+function resolveColorCollect(cg) {
+  const entries = Object.entries(cg.data.colors);
+  const values = entries.map(([, c]) => c);
+  const distinct = new Set(values);
+  const success = distinct.size === entries.length;
+  if (success) {
+    entries.forEach(([id]) => addScore(id, 1));
+  }
+  const reveal = entries.map(([id, c]) => `${nameOf(id)}:${c}`).join(', ');
+  cg.finalSummary = {
+    success,
+    text: `${success ? '🎉 색깔이 겹치지 않고 다 나왔어요! 전원 +1점' : '😵 색깔이 겹쳤어요! 실패'} — (${reveal})`
+  };
+}
+
+function resolveOrderRelayTimeout(cg) {
+  const done = cg.data.currentStep - 1;
+  cg.finalSummary = {
+    success: false,
+    text: `시간 종료! ${done} / ${cg.data.total}명까지 성공했어요 (틀린 횟수: ${cg.data.mistakeCount}). 실패!`
+  };
+}
+
+function finishOrderRelaySuccess() {
+  const cg = state.currentGame;
+  if (!cg || cg.gameId !== 'orderRelay' || cg.phase !== 'playing') return;
+  clearTimers();
+  connectedPlayers().forEach((p) => addScore(p.id, 2));
+  cg.finalSummary = {
+    success: true,
+    text: `🎉 모두 순서대로 성공했어요! (틀린 횟수: ${cg.data.mistakeCount}) 전원 +2점`
+  };
+  finishGame(cg);
+}
+
 function resolveBombNumber(cg) {
   const bomb = cg.data.bomb;
   const hit = [];
@@ -269,9 +489,79 @@ function resolveBombNumber(cg) {
   };
 }
 
-function nameOf(id) {
-  const p = state.players.find((pl) => pl.id === id);
-  return p ? p.nickname : '???';
+function resolveReactionDuel(cg) {
+  const [idA, idB] = cg.data.competitors;
+  function evalOf(id) {
+    const v = cg.submissions[id];
+    if (v === undefined) return { id, status: 'dnf', elapsed: Infinity };
+    const elapsed = v - cg.data.signalAt;
+    if (elapsed < 0) return { id, status: 'early', elapsed: Infinity };
+    return { id, status: 'ok', elapsed };
+  }
+  const a = evalOf(idA);
+  const b = evalOf(idB);
+  const describe = (r) =>
+    r.status === 'ok' ? `${r.elapsed}ms` : r.status === 'early' ? '실격(너무 빨리 누름)' : '무반응';
+
+  let winnerId = null;
+  if (a.elapsed === Infinity && b.elapsed === Infinity) {
+    winnerId = null;
+  } else if (a.elapsed <= b.elapsed) {
+    winnerId = idA;
+  } else {
+    winnerId = idB;
+  }
+  if (winnerId) addScore(winnerId, 3);
+
+  cg.finalSummary = {
+    success: !!winnerId,
+    text: winnerId
+      ? `🏆 승자: ${nameOf(winnerId)}! (+3점) — ${nameOf(idA)}: ${describe(a)} / ${nameOf(idB)}: ${describe(b)}`
+      : `둘 다 무효 처리됐어요 — ${nameOf(idA)}: ${describe(a)} / ${nameOf(idB)}: ${describe(b)}`
+  };
+}
+
+function resolveLieDetector(cg) {
+  const votes = cg.submissions;
+  let realCount = 0;
+  let fakeCount = 0;
+  Object.values(votes).forEach((v) => {
+    if (v === 'real') realCount += 1;
+    else if (v === 'fake') fakeCount += 1;
+  });
+  const actualAnswer = cg.data.truth ? 'real' : 'fake';
+  const answerLabel = cg.data.truth ? '진짜(참)' : '가짜(거짓)';
+
+  Object.entries(votes).forEach(([id, v]) => {
+    if (v === actualAnswer) addScore(id, 1);
+  });
+
+  let majorityGuess = 'tie';
+  if (realCount > fakeCount) majorityGuess = 'real';
+  else if (fakeCount > realCount) majorityGuess = 'fake';
+
+  let penaltyTargets = [];
+  let outcomeText = '';
+  if (majorityGuess === 'tie') {
+    outcomeText = '투표가 반반으로 갈렸어요! 무승부, 벌칙 없음.';
+  } else if (majorityGuess === actualAnswer) {
+    penaltyTargets = [cg.data.actorId];
+    outcomeText = `다수결로 정답을 맞췄어요! ${nameOf(cg.data.actorId)} 님이 벌칙 대상!`;
+  } else {
+    penaltyTargets = Object.entries(votes)
+      .filter(([, v]) => v !== actualAnswer)
+      .map(([id]) => id);
+    addScore(cg.data.actorId, 2);
+    outcomeText = `다수결이 틀렸어요! ${nameOf(cg.data.actorId)} 님 연기 성공 (+2점). 잘못 투표한 사람들이 벌칙 대상!`;
+  }
+
+  cg.finalSummary = {
+    success: null,
+    text: `정답은 [${answerLabel}] 이었습니다 (진짜 ${realCount}표 / 가짜 ${fakeCount}표). ${outcomeText}${
+      penaltyTargets.length ? ' 벌칙: ' + penaltyTargets.map((id) => nameOf(id)).join(', ') : ''
+    }`,
+    penaltyTargets
+  };
 }
 
 function resolveNoticeGame(cg) {
@@ -428,26 +718,31 @@ io.on('connection', (socket) => {
     p.connected = true;
     p.socketId = socket.id;
     socket.data.playerId = playerId;
-    broadcast();
-  });
-
-  socket.on('admin:autoAssignTeams', () => {
-    const shuffled = [...state.players].sort(() => Math.random() - 0.5);
-    shuffled.forEach((p, i) => {
-      p.team = i % 2 === 0 ? 'A' : 'B';
-    });
-    broadcast();
-  });
-
-  socket.on('admin:setPlayerTeam', ({ playerId, team }) => {
-    const p = state.players.find((pl) => pl.id === playerId);
-    if (p) p.team = team;
+    resendLieDetectorSecretIfNeeded(playerId, socket.id);
     broadcast();
   });
 
   socket.on('admin:startGame', ({ gameId }) => {
     if (state.phase !== 'lobby') return;
+    const def = GAME_DEFS[gameId];
+    if (!def) return;
+    if (connectedPlayers().length < (def.minPlayers || 1)) {
+      socket.emit('startGameFailed', { need: def.minPlayers, name: def.name });
+      return;
+    }
     startGame(gameId);
+  });
+
+  socket.on('admin:startRandomGame', () => {
+    if (state.phase !== 'lobby') return;
+    const n = connectedPlayers().length;
+    const eligible = Object.values(GAME_DEFS).filter((d) => n >= (d.minPlayers || 1));
+    if (eligible.length === 0) {
+      socket.emit('startGameFailed', { need: 1, name: '아무 게임' });
+      return;
+    }
+    const chosen = pick(eligible);
+    startGame(chosen.id, { random: true });
   });
 
   socket.on('player:ready', () => {
@@ -476,6 +771,29 @@ io.on('connection', (socket) => {
     cg.submissions[pid] = value;
     broadcast();
     maybeAutoResolve();
+  });
+
+  socket.on('player:relayPress', () => {
+    const cg = state.currentGame;
+    const pid = socket.data.playerId;
+    if (!cg || cg.gameId !== 'orderRelay' || cg.phase !== 'playing' || !pid) return;
+    const myOrder = cg.data.order[pid];
+    if (myOrder === undefined) return;
+    if (myOrder === cg.data.currentStep) {
+      cg.data.currentStep += 1;
+      cg.data.lastResult = 'correct';
+      cg.data.lastEventTs = Date.now();
+      if (cg.data.currentStep > cg.data.total) {
+        finishOrderRelaySuccess();
+        return;
+      }
+    } else {
+      cg.data.currentStep = 1;
+      cg.data.mistakeCount += 1;
+      cg.data.lastResult = 'wrong';
+      cg.data.lastEventTs = Date.now();
+    }
+    broadcast();
   });
 
   socket.on('admin:endRoundNow', () => {

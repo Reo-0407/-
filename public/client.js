@@ -5,8 +5,13 @@ const penaltyOverlayEl = document.getElementById('penaltyOverlay');
 const GAME_CATALOG = [
   { id: 'numberMatch', name: '숫자 맞추기 대전', category: '협동' },
   { id: 'averageGuess', name: '평균 맞추기', category: '협동' },
+  { id: 'sumTarget', name: '총합 맞추기', category: '협동' },
+  { id: 'colorCollect', name: '색깔 다 모으기', category: '협동' },
+  { id: 'orderRelay', name: '순서 릴레이', category: '협동' },
   { id: 'noticeGame', name: '눈치게임', category: '대결' },
-  { id: 'bombNumber', name: '폭탄 숫자 피하기', category: '벌칙' }
+  { id: 'reactionDuel', name: '반응속도 1:1', category: '대결' },
+  { id: 'bombNumber', name: '폭탄 숫자 피하기', category: '벌칙' },
+  { id: 'lieDetector', name: '거짓말 탐지 투표', category: '벌칙' }
 ];
 
 let role = sessionStorage.getItem('role') || null; // 'admin' | 'player'
@@ -16,6 +21,10 @@ let prevPhase = null;
 let countdownTimer = null;
 let lastTickShown = null;
 let setupCount = Number(localStorage.getItem('lastCount')) || 4;
+let mySecret = null; // 거짓말 탐지 게임: 배우에게만 오는 비밀 지침
+let lastRelayEventTs = 0;
+const roulette = { instanceId: null, animating: false };
+let rouletteIntervalId = null;
 
 function unlockAudioOnce() {
   SFX.unlock();
@@ -40,22 +49,51 @@ socket.on('registerFailed', ({ reason }) => {
   render();
 });
 
+socket.on('startGameFailed', ({ name, need }) => {
+  alert(`${name} 게임은 최소 ${need}명이 연결되어 있어야 시작할 수 있어요.`);
+});
+
+socket.on('lieDetectorSecret', (secret) => {
+  mySecret = secret;
+});
+
 socket.on('state', (s) => {
-  const wasPlaying = latestState && latestState.currentGame && latestState.currentGame.phase;
   latestState = s;
   handleSoundCues(s);
+  maybeStartRoulette(s.currentGame);
   render();
 });
+
+function maybeStartRoulette(cg) {
+  if (cg && cg.wasRandom && cg.phase === 'tutorial' && cg.instanceId !== roulette.instanceId) {
+    roulette.instanceId = cg.instanceId;
+    roulette.animating = true;
+    setTimeout(() => {
+      roulette.animating = false;
+      if (rouletteIntervalId) clearInterval(rouletteIntervalId);
+      render();
+    }, 2200);
+  }
+}
 
 function handleSoundCues(s) {
   const cg = s.currentGame;
   const newPhase = cg ? cg.phase : s.phase;
   if (newPhase !== prevPhase) {
     if (cg && cg.phase === 'result' && cg.finalSummary) {
-      if (cg.finalSummary.success === true) SFX.success();
-      else if (cg.finalSummary.success === false) SFX.fail();
+      if (cg.finalSummary.success === true) {
+        SFX.success();
+        Confetti.launch();
+      } else if (cg.finalSummary.success === false) {
+        SFX.fail();
+      }
     }
     prevPhase = newPhase;
+  }
+  if (cg && cg.gameId === 'orderRelay' && cg.data.lastEventTs && cg.data.lastEventTs !== lastRelayEventTs) {
+    lastRelayEventTs = cg.data.lastEventTs;
+    if (cg.data.lastResult === 'correct') SFX.tick();
+    else if (cg.data.lastResult === 'wrong') SFX.fail();
   }
   if (s.penaltyOverlay && (!latestState._lastPenaltyTs || latestState._lastPenaltyTs !== s.penaltyOverlay.ts)) {
     SFX.penalty();
@@ -228,8 +266,7 @@ function renderAdminLobby() {
         <p class="muted">${latestState.players.filter((p) => p.connected).length} / ${latestState.maxPlayers}명 입장함</p>
         <div class="player-list" id="playerList"></div>
         <hr />
-        <p class="muted">팀은 참가자가 미리 배정돼 있어요. 대결형 게임(예: 눈치게임)에서만 팀 점수가 쓰이고, 협동/벌칙형 게임은 팀과 상관없이 진행돼요.</p>
-        <button class="big-btn small" id="autoTeam">🎲 팀 다시 섞기</button>
+        <p class="muted">팀은 게임을 시작할 때마다 자동으로 랜덤 재배정돼요. 대결형 게임(예: 눈치게임)에서만 팀 점수가 쓰이고, 협동/벌칙형 게임은 팀과 상관없이 진행돼요.</p>
       </div>
 
       <div class="card">
@@ -240,12 +277,18 @@ function renderAdminLobby() {
 
       <div class="card">
         <h2>🎮 게임 선택</h2>
+        <button class="big-btn pink" id="randomGame">🎰 랜덤 룰렛으로 뽑기</button>
         <div id="gameButtons"></div>
       </div>
 
       <div class="card">
         <h2>📜 최근 게임 기록</h2>
         <div id="historyList"></div>
+      </div>
+
+      <div class="card">
+        <h3>⚠️ 위험 구역</h3>
+        <button class="big-btn gray small" id="fullReset">🔄 전체 초기화 (인원부터 다시 설정)</button>
       </div>
     </div>
   `);
@@ -261,23 +304,22 @@ function renderAdminLobby() {
     }
     row.innerHTML = `
       <span><span class="status-dot"></span>${genderIcon(p.gender)} ${escapeHtml(p.nickname)}</span>
-      <span class="team-badge ${p.team}" data-id="${p.id}">
-        ${p.team === 'A' ? '🔵A팀' : '🔴B팀'}
-      </span>
+      <span class="team-badge ${p.team}">${p.team === 'A' ? '🔵A팀' : '🔴B팀'}</span>
     `;
-    row.querySelector('.team-badge').onclick = () => {
-      const nextTeam = p.team === 'A' ? 'B' : 'A';
-      socket.emit('admin:setPlayerTeam', { playerId: p.id, team: nextTeam });
-    };
     playerListEl.appendChild(row);
   });
 
-  frag.getElementById('autoTeam').onclick = () => socket.emit('admin:autoAssignTeams');
+  frag.getElementById('leaderboard').appendChild(renderLeaderboard(false));
+
   frag.getElementById('resetHistory').onclick = () => {
     if (confirm('점수와 게임 기록을 모두 초기화할까요?')) socket.emit('admin:resetHistory');
   };
-
-  frag.getElementById('leaderboard').appendChild(renderLeaderboard(false));
+  frag.getElementById('fullReset').onclick = () => {
+    if (confirm('정말 처음부터 다시 시작할까요? 참가자 명단과 점수가 모두 사라져요!')) {
+      socket.emit('admin:fullReset');
+    }
+  };
+  frag.getElementById('randomGame').onclick = () => socket.emit('admin:startRandomGame');
 
   const gameButtonsEl = frag.getElementById('gameButtons');
   ['협동', '대결', '벌칙'].forEach((cat) => {
@@ -333,6 +375,15 @@ function renderLeaderboard(showTeamTotal) {
   return wrap;
 }
 
+function adminEligibleIds(cg) {
+  if (cg.gameId === 'noticeGame') return cg.data.aliveIds;
+  if (cg.gameId === 'reactionDuel') return cg.data.competitors;
+  if (cg.gameId === 'lieDetector') {
+    return latestState.players.filter((p) => p.connected && p.id !== cg.data.actorId).map((p) => p.id);
+  }
+  return latestState.players.filter((p) => p.connected).map((p) => p.id);
+}
+
 function renderAdminGameControl() {
   const cg = latestState.currentGame;
   const frag = el(`
@@ -353,10 +404,18 @@ function renderAdminGameControl() {
     `;
     body.querySelector('#forceStart').onclick = () => socket.emit('admin:forceStart');
   } else if (cg.phase === 'playing') {
-    const need = cg.gameId === 'noticeGame' ? cg.data.aliveIds : latestState.players.filter((p) => p.connected).map((p) => p.id);
-    const got = cg.submittedIds ? cg.submittedIds.length : 0;
+    let statusHtml;
+    if (cg.gameId === 'colorCollect') {
+      statusHtml = `<p>친구들과 대화하며 색깔을 알아내는 중... 시간이 끝나면 자동 공개돼요.</p>`;
+    } else if (cg.gameId === 'orderRelay') {
+      statusHtml = `<p>현재 진행: <b>${cg.data.currentStep - 1} / ${cg.data.total}</b>명 성공 (틀린 횟수: ${cg.data.mistakeCount})</p>`;
+    } else {
+      const need = adminEligibleIds(cg);
+      const got = cg.submittedIds ? cg.submittedIds.length : 0;
+      statusHtml = `<p>${cg.gameId === 'noticeGame' ? `라운드 ${cg.data.round} ` : ''}제출 현황: <b>${got} / ${need.length}</b></p>`;
+    }
     body.innerHTML = `
-      <p>${cg.gameId === 'noticeGame' ? `라운드 ${cg.data.round}` : ''} 제출 현황: <b>${got} / ${need.length}</b></p>
+      ${statusHtml}
       <div class="timer-bar-outer"><div class="timer-bar-inner" id="adminTimerBar" style="width:100%"></div></div>
       <button class="big-btn gray" id="endNow">⏹️ 지금 바로 마감</button>
     `;
@@ -425,8 +484,33 @@ function renderPlayer() {
     return wrap;
   }
 
+  const cg = latestState.currentGame;
+  if (cg.phase === 'tutorial' && cg.wasRandom && roulette.animating && roulette.instanceId === cg.instanceId) {
+    wrap.appendChild(renderRouletteSpin(cg));
+    return wrap;
+  }
+
   wrap.appendChild(renderPlayerGame(me));
   return wrap;
+}
+
+function renderRouletteSpin(cg) {
+  const frag = el(`
+    <div class="card">
+      <h2 class="center">🎰 오늘의 게임은...?</h2>
+      <div class="roulette-box">
+        <div class="spin-name" id="spinName">???</div>
+      </div>
+      <p class="muted center">두구두구두구...</p>
+    </div>
+  `);
+  const nameEl = frag.getElementById('spinName');
+  if (rouletteIntervalId) clearInterval(rouletteIntervalId);
+  rouletteIntervalId = setInterval(() => {
+    const g = GAME_CATALOG[Math.floor(Math.random() * GAME_CATALOG.length)];
+    if (nameEl) nameEl.innerText = g.name;
+  }, 90);
+  return frag;
 }
 
 function renderPlayerJoin() {
@@ -521,31 +605,7 @@ function renderPlayerGame(me) {
     const btn = body.querySelector('#readyBtn');
     if (!isReady) btn.onclick = () => socket.emit('player:ready');
   } else if (cg.phase === 'playing') {
-    if (cg.gameId === 'noticeGame' && !cg.data.aliveIds.includes(me.id)) {
-      body.innerHTML = `<p class="center" style="font-size:1.3rem;">💀 이번 게임에서는 탈락했어요.<br/>결과를 지켜봐 주세요!</p>`;
-    } else {
-      const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
-      const max = cg.data.max;
-      const min = cg.data.min || 1;
-      let gridHtml = '<div class="number-grid" id="grid">';
-      for (let n = min; n <= max; n++) {
-        gridHtml += `<button data-n="${n}" ${submitted ? 'disabled' : ''}>${n}</button>`;
-      }
-      gridHtml += '</div>';
-      body.innerHTML = `
-        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
-        ${gridHtml}
-        <p class="center muted" id="submitStatus">${submitted ? '제출 완료! 다른 친구들을 기다리는 중...' : '숫자를 골라주세요'}</p>
-      `;
-      if (!submitted) {
-        body.querySelectorAll('#grid button').forEach((btn) => {
-          btn.onclick = () => {
-            SFX.click();
-            socket.emit('player:submit', { value: Number(btn.dataset.n) });
-          };
-        });
-      }
-    }
+    renderPlayerPlaying(body, cg, me);
   } else if (cg.phase === 'roundResult') {
     const rr = cg.lastRoundSummary;
     const alive = cg.data.aliveIds.includes(me.id);
@@ -565,6 +625,128 @@ function renderPlayerGame(me) {
   }
 
   return frag;
+}
+
+function renderPlayerPlaying(body, cg, me) {
+  if (cg.gameId === 'noticeGame') {
+    if (!cg.data.aliveIds.includes(me.id)) {
+      const neverIn = cg.data.initialIds && !cg.data.initialIds.includes(me.id);
+      body.innerHTML = neverIn
+        ? `<p class="center" style="font-size:1.3rem;">⏳ 이번 게임에는 참여하지 못했어요.<br/>다음 게임을 기다려주세요!</p>`
+        : `<p class="center" style="font-size:1.3rem;">💀 이번 게임에서는 탈락했어요.<br/>결과를 지켜봐 주세요!</p>`;
+      return;
+    }
+    renderNumberGrid(body, cg, me);
+  } else if (cg.gameId === 'reactionDuel') {
+    if (!cg.data.competitors.includes(me.id)) {
+      body.innerHTML = `<p class="center" style="font-size:1.2rem;">⚡ ${escapeHtml(nameOf(cg.data.competitors[0]))} VS ${escapeHtml(
+        nameOf(cg.data.competitors[1])
+      )}<br/>대결 중입니다! 결과를 지켜봐주세요.</p>`;
+      return;
+    }
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <button class="reaction-btn" id="reactionBtn" ${submitted ? 'disabled' : ''}>${
+      submitted ? '제출 완료!' : '기다리세요...'
+    }</button>
+      <p class="center muted">신호가 오면(버튼이 초록색) 최대한 빨리 누르세요! 너무 빨리 누르면 실격이에요.</p>
+    `;
+    if (!submitted) {
+      body.querySelector('#reactionBtn').onclick = () => {
+        SFX.click();
+        socket.emit('player:submit', { value: Date.now() });
+      };
+    }
+  } else if (cg.gameId === 'colorCollect') {
+    const myColor = cg.data.colors ? cg.data.colors[me.id] : '❓';
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <p class="center muted">당신만 보이는 비밀 색깔이에요!</p>
+      <div class="color-display">${myColor}</div>
+      <p class="center muted">친구들과 이야기해서 5가지 색이 겹치지 않게 나왔는지 확인해보세요. 시간이 끝나면 자동 공개돼요.</p>
+    `;
+  } else if (cg.gameId === 'orderRelay') {
+    const step = cg.data.currentStep;
+    const total = cg.data.total;
+    const flash =
+      cg.data.lastResult === 'correct'
+        ? '<p class="relay-flash correct">✅ 방금 정답! 다음 순서로 넘어갔어요</p>'
+        : cg.data.lastResult === 'wrong'
+        ? '<p class="relay-flash wrong">❌ 틀렸어요! 처음부터 다시!</p>'
+        : '';
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <p class="center">현재까지 <b>${step - 1} / ${total}</b>명 성공 (틀린 횟수: ${cg.data.mistakeCount})</p>
+      ${flash}
+      <button class="relay-btn" id="relayBtn">지금인 것 같으면 누르기!</button>
+      <p class="center muted">순서를 맞춰서 눌러야 다음 단계로 넘어가요.</p>
+    `;
+    body.querySelector('#relayBtn').onclick = () => {
+      SFX.click();
+      socket.emit('player:relayPress');
+    };
+  } else if (cg.gameId === 'lieDetector') {
+    const isActor = cg.data.actorId === me.id;
+    if (isActor) {
+      body.innerHTML = `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <div class="secret-box">${
+          mySecret
+            ? (mySecret.truth ? '✅ 진실을 말하세요!' : '🎭 그럴듯하게 거짓말을 하세요!') + '\n주제: ' + escapeHtml(mySecret.prompt)
+            : '비밀 지침을 불러오는 중...'
+        }</div>
+        <p class="center muted">지금 친구들에게 이야기해주세요! 투표 결과를 기다려주세요.</p>
+      `;
+    } else {
+      const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+      body.innerHTML = `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <p class="center">${escapeHtml(nameOf(cg.data.actorId))} 님의 이야기, 진짜일까요 가짜일까요?</p>
+        <div class="row">
+          <button class="big-btn green" id="voteReal" ${submitted ? 'disabled' : ''}>😇 진짜예요</button>
+          <button class="big-btn pink" id="voteFake" ${submitted ? 'disabled' : ''}>😈 가짜예요</button>
+        </div>
+        <p class="center muted">${submitted ? '투표 완료! 결과를 기다려주세요' : ''}</p>
+      `;
+      if (!submitted) {
+        body.querySelector('#voteReal').onclick = () => {
+          SFX.click();
+          socket.emit('player:submit', { value: 'real' });
+        };
+        body.querySelector('#voteFake').onclick = () => {
+          SFX.click();
+          socket.emit('player:submit', { value: 'fake' });
+        };
+      }
+    }
+  } else {
+    renderNumberGrid(body, cg, me);
+  }
+}
+
+function renderNumberGrid(body, cg, me) {
+  const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+  const max = cg.data.max;
+  const min = cg.data.min || 1;
+  let gridHtml = '<div class="number-grid" id="grid">';
+  for (let n = min; n <= max; n++) {
+    gridHtml += `<button data-n="${n}" ${submitted ? 'disabled' : ''}>${n}</button>`;
+  }
+  gridHtml += '</div>';
+  body.innerHTML = `
+    <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+    ${gridHtml}
+    <p class="center muted" id="submitStatus">${submitted ? '제출 완료! 다른 친구들을 기다리는 중...' : '숫자를 골라주세요'}</p>
+  `;
+  if (!submitted) {
+    body.querySelectorAll('#grid button').forEach((btn) => {
+      btn.onclick = () => {
+        SFX.click();
+        socket.emit('player:submit', { value: Number(btn.dataset.n) });
+      };
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +772,15 @@ function startCountdownLoopIfNeeded() {
     if (secLeft <= 3 && secLeft >= 1 && secLeft !== lastTickShown) {
       SFX.tick();
       lastTickShown = secLeft;
+    }
+    if (cg.gameId === 'reactionDuel' && cg.data.signalAt) {
+      const btn = document.getElementById('reactionBtn');
+      if (btn && !btn.disabled) {
+        if (Date.now() >= cg.data.signalAt) {
+          btn.classList.add('go');
+          btn.innerText = '지금 눌러!';
+        }
+      }
     }
     if (remainMs <= 0) {
       clearInterval(countdownTimer);

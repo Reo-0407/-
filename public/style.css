@@ -195,3 +195,70 @@ input[type=text], input[type=number], select {
 .penalty-form { display: flex; gap: 8px; margin-top: 10px; }
 .penalty-form input { flex: 3; margin: 0; }
 .penalty-form button { flex: 1; margin: 0; }
+
+.reaction-btn {
+  width: 100%;
+  aspect-ratio: 1.6;
+  border: none;
+  border-radius: 20px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #9aa0ab, #7c828c);
+  transition: background .15s ease, transform .08s ease;
+}
+.reaction-btn:active { transform: scale(0.97); }
+.reaction-btn.go { background: linear-gradient(135deg, #43c68a, #2fa876); animation: reactionPulse .5s infinite; }
+@keyframes reactionPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(67,198,138,.6);} 50% { box-shadow: 0 0 0 18px rgba(67,198,138,0);} }
+
+.color-display {
+  text-align: center;
+  font-size: 6rem;
+  padding: 30px;
+  background: #fff8e6;
+  border: 3px dashed #ffb347;
+  border-radius: 20px;
+  margin: 14px 0;
+}
+
+.relay-btn {
+  width: 100%;
+  padding: 40px;
+  border: none;
+  border-radius: 20px;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #6a5acd, #8a7ff0);
+}
+.relay-btn:active { transform: scale(0.97); }
+.relay-flash { text-align: center; font-size: 1.3rem; font-weight: 800; margin: 10px 0; }
+.relay-flash.correct { color: #2fa876; }
+.relay-flash.wrong { color: #e2574a; }
+
+.roulette-box {
+  text-align: center;
+  padding: 40px 20px;
+  background: #fff8e6;
+  border: 3px dashed #ffb347;
+  border-radius: 20px;
+  margin: 12px 0;
+}
+.roulette-box .spin-name {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #6a5acd;
+}
+
+.secret-box {
+  background: #2b2b3a;
+  color: #ffd93d;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 0;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: pre-line;
+}
