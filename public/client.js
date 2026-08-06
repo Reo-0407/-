@@ -272,17 +272,12 @@ function renderRoleSelect() {
 }
 
 function renderAdminPinPrompt() {
-  const pinSet = latestState && latestState.adminPinSet;
   const frag = el(`
     <div style="width:100%; max-width:480px; margin-top:12vh;">
       <h1>🔒 관리자 입장</h1>
       <div class="card">
-        <p class="muted">${
-          pinSet
-            ? 'PIN을 입력해주세요.'
-            : '처음 입장이에요. 앞으로 쓸 PIN을 정해주세요 (비워두면 보호 없이 진행돼요).'
-        }</p>
-        <input type="text" id="pinInput" inputmode="numeric" maxlength="6" placeholder="PIN (숫자 4~6자리 권장)" />
+        <p class="muted">관리자 비밀번호를 입력해주세요.</p>
+        <input type="text" id="pinInput" placeholder="비밀번호" />
         ${pinError ? `<p style="color:#e2574a; font-weight:700;">${escapeHtml(pinError)}</p>` : ''}
         <button class="big-btn green" id="pinSubmit">🚪 입장하기</button>
         <button class="big-btn gray small" id="pinCancel">← 뒤로</button>
@@ -299,7 +294,7 @@ function renderAdminPinPrompt() {
         showAdminPinPrompt = false;
         pinError = null;
       } else {
-        pinError = 'PIN이 틀렸어요. 다시 시도해주세요.';
+        pinError = '비밀번호가 틀렸어요. 다시 시도해주세요.';
       }
       render();
     });
@@ -400,7 +395,6 @@ function renderAdminLobby() {
       <div class="card">
         <h3>⚠️ 위험 구역</h3>
         <button class="big-btn gray small" id="fullReset">🔄 전체 초기화 (인원부터 다시 설정)</button>
-        <button class="big-btn gray small" id="clearPin">🔓 관리자 PIN 초기화</button>
       </div>
     </div>
   `);
@@ -437,11 +431,6 @@ function renderAdminLobby() {
   frag.getElementById('fullReset').onclick = () => {
     if (confirm('정말 처음부터 다시 시작할까요? 참가자 명단과 점수가 모두 사라져요!')) {
       socket.emit('admin:fullReset');
-    }
-  };
-  frag.getElementById('clearPin').onclick = () => {
-    if (confirm('관리자 PIN을 초기화할까요? 다음 입장부터는 PIN 없이 들어올 수 있어요.')) {
-      socket.emit('admin:clearPin');
     }
   };
   frag.getElementById('randomGame').onclick = () => socket.emit('admin:startRandomGame');
