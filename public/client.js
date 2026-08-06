@@ -11,7 +11,23 @@ const GAME_CATALOG = [
   { id: 'noticeGame', name: '눈치게임', category: '대결' },
   { id: 'reactionDuel', name: '반응속도 1:1', category: '대결' },
   { id: 'bombNumber', name: '폭탄 숫자 피하기', category: '벌칙' },
-  { id: 'lieDetector', name: '거짓말 탐지 투표', category: '벌칙' }
+  { id: 'lieDetector', name: '거짓말 탐지 투표', category: '벌칙' },
+  { id: 'wordChain', name: '끝말잇기 릴레이', category: '협동' },
+  { id: 'commonWord', name: '공통점 찾기', category: '협동' },
+  { id: 'consonantQuiz', name: '자음 퀴즈', category: '협동' },
+  { id: 'priceGuess', name: '가격 맞추기 경매', category: '협동' },
+  { id: 'describeGuess', name: '다 함께 그림 맞추기', category: '협동' },
+  { id: 'oxQuiz', name: '참/거짓 O·X 퀴즈', category: '협동' },
+  { id: 'flashMemoryQuiz', name: '순간 포착 퀴즈', category: '협동' },
+  { id: 'balanceVote', name: '밸런스 게임 투표', category: '협동' },
+  { id: 'predictCount', name: '몇 명이 맞출까 예측', category: '협동' },
+  { id: 'memoryDuel', name: '기억력 카드 짝 맞추기', category: '대결' },
+  { id: 'mathQuiz', name: '연산 스피드 퀴즈', category: '대결' },
+  { id: 'flashReaction', name: '깜빡이 반응 대결', category: '대결' },
+  { id: 'voteBattle', name: '투표 배틀', category: '대결' },
+  { id: 'votePenalty', name: '투표로 벌칙자 지목', category: '벌칙' },
+  { id: 'bombRelay', name: '숫자 폭탄 릴레이', category: '벌칙' },
+  { id: 'spyVote', name: '가짜 투표 색출', category: '벌칙' }
 ];
 
 let role = sessionStorage.getItem('role') || null; // 'admin' | 'player'
@@ -22,7 +38,10 @@ let countdownTimer = null;
 let lastTickShown = null;
 let setupCount = Number(localStorage.getItem('lastCount')) || 4;
 let mySecret = null; // 거짓말 탐지 게임: 배우에게만 오는 비밀 지침
+let myDescribeWord = null; // 그림 맞추기 게임: 설명자에게만 오는 비밀 단어
 let lastRelayEventTs = 0;
+let lastWordChainEventTs = 0;
+let lastBombEventTs = 0;
 let showAdminPinPrompt = false;
 let pinError = null;
 const roulette = { instanceId: null, animating: false };
@@ -57,6 +76,9 @@ socket.on('startGameFailed', ({ name, need }) => {
 
 socket.on('lieDetectorSecret', (secret) => {
   mySecret = secret;
+});
+socket.on('describeGuessSecret', (secret) => {
+  myDescribeWord = secret.word;
 });
 
 socket.on('kicked', () => {
@@ -106,6 +128,15 @@ function handleSoundCues(s) {
     lastRelayEventTs = cg.data.lastEventTs;
     if (cg.data.lastResult === 'correct') SFX.tick();
     else if (cg.data.lastResult === 'wrong') SFX.fail();
+  }
+  if (cg && cg.gameId === 'wordChain' && cg.data.lastEventTs && cg.data.lastEventTs !== lastWordChainEventTs) {
+    lastWordChainEventTs = cg.data.lastEventTs;
+    if (cg.data.lastResult === 'correct') SFX.tick();
+    else if (cg.data.lastResult === 'wrong') SFX.fail();
+  }
+  if (cg && cg.gameId === 'bombRelay' && cg.data.lastEventTs && cg.data.lastEventTs !== lastBombEventTs) {
+    lastBombEventTs = cg.data.lastEventTs;
+    SFX.tick();
   }
   if (s.penaltyOverlay && (!latestState._lastPenaltyTs || latestState._lastPenaltyTs !== s.penaltyOverlay.ts)) {
     SFX.penalty();
@@ -508,8 +539,8 @@ function renderAwardsScreen(isAdmin) {
 
 function adminEligibleIds(cg) {
   if (cg.gameId === 'noticeGame') return cg.data.aliveIds;
-  if (cg.gameId === 'reactionDuel') return cg.data.competitors;
-  if (cg.gameId === 'lieDetector') {
+  if (cg.gameId === 'reactionDuel' || cg.gameId === 'memoryDuel') return cg.data.competitors;
+  if (cg.gameId === 'lieDetector' || (cg.gameId === 'describeGuess' && cg.data.stage === 'guess')) {
     return latestState.players.filter((p) => p.connected && p.id !== cg.data.actorId).map((p) => p.id);
   }
   return latestState.players.filter((p) => p.connected).map((p) => p.id);
@@ -540,6 +571,26 @@ function renderAdminGameControl() {
       statusHtml = `<p>친구들과 대화하며 색깔을 알아내는 중... 시간이 끝나면 자동 공개돼요.</p>`;
     } else if (cg.gameId === 'orderRelay') {
       statusHtml = `<p>현재 진행: <b>${cg.data.currentStep - 1} / ${cg.data.total}</b>명 성공 (틀린 횟수: ${cg.data.mistakeCount})</p>`;
+    } else if (cg.gameId === 'wordChain') {
+      statusHtml = `<p>이어진 단어: <b>${cg.data.chain.length} / ${cg.data.targetLength}</b>개 (틀린 횟수: ${cg.data.mistakeCount})</p>
+        <p class="muted">${escapeHtml(cg.data.chain.join(' → '))}</p>`;
+    } else if (cg.gameId === 'bombRelay') {
+      statusHtml = `<p>현재까지 <b>${cg.data.count}</b>번째! 언제 터질지 지켜보세요.</p>`;
+    } else if (cg.gameId === 'memoryDuel') {
+      const [idA, idB] = cg.data.competitors;
+      statusHtml = `<p>🎴 ${nameOf(idA)} ${cg.data.scores[idA] || 0}쌍 : ${cg.data.scores[idB] || 0}쌍 ${nameOf(idB)}</p>
+        <p class="muted">현재 차례: ${nameOf(cg.data.turnPlayerId)}</p>`;
+    } else if (cg.gameId === 'consonantQuiz' || cg.gameId === 'mathQuiz') {
+      const got = cg.submittedIds ? cg.submittedIds.length : 0;
+      statusHtml = `<p>시도 인원: <b>${got}</b>명 — 가장 먼저 맞추면 바로 종료돼요.</p>`;
+    } else if (cg.gameId === 'describeGuess') {
+      if (cg.data.stage === 'describe') {
+        statusHtml = `<p>${nameOf(cg.data.actorId)} 님이 설명 글을 작성 중이에요...</p>`;
+      } else {
+        const need = adminEligibleIds(cg);
+        const got = cg.submittedIds ? cg.submittedIds.length : 0;
+        statusHtml = `<p>설명: "${escapeHtml(cg.data.clue || '')}"</p><p>시도 인원: <b>${got} / ${need.length}</b></p>`;
+      }
     } else {
       const need = adminEligibleIds(cg);
       const got = cg.submittedIds ? cg.submittedIds.length : 0;
@@ -861,8 +912,405 @@ function renderPlayerPlaying(body, cg, me) {
         };
       }
     }
+  } else if (cg.gameId === 'wordChain') {
+    const flash =
+      cg.data.lastResult === 'correct'
+        ? `<p class="relay-flash correct">✅ ${escapeHtml(nameOf(cg.data.lastBy))} 님이 이었어요!</p>`
+        : cg.data.lastResult === 'wrong'
+        ? `<p class="relay-flash wrong">❌ ${escapeHtml(nameOf(cg.data.lastBy))} 님의 시도는 틀렸어요</p>`
+        : '';
+    const lastWord = cg.data.chain[cg.data.chain.length - 1];
+    renderTextSubmit(
+      body,
+      `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <p class="center">진행: <b>${cg.data.chain.length} / ${cg.data.targetLength}</b> (틀린 횟수: ${cg.data.mistakeCount})</p>
+        <div class="tutorial-box" style="font-size:1rem;">${escapeHtml(cg.data.chain.join(' → '))}</div>
+        ${flash}
+      `,
+      {
+        placeholder: `"${lastWord.slice(-1)}"로 시작하는 단어`,
+        buttonLabel: '이어쓰기!',
+        submitted: false,
+        onSubmit: (v) => socket.emit('player:submitWord', { word: v })
+      }
+    );
+  } else if (cg.gameId === 'commonWord') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderTextSubmit(
+      body,
+      `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <p class="center">주제: <b>${escapeHtml(cg.data.topic)}</b></p>
+      `,
+      {
+        placeholder: '답을 입력하세요',
+        buttonLabel: '제출하기',
+        submitted,
+        onSubmit: (v) => socket.emit('player:submit', { value: v })
+      }
+    );
+  } else if (cg.gameId === 'consonantQuiz') {
+    renderTextSubmit(
+      body,
+      `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <div class="tutorial-box center" style="font-size:2rem; letter-spacing:4px;">${escapeHtml(cg.data.puzzle)}</div>
+        <p class="center muted">정답을 입력하고 제출하세요. 틀리면 계속 다시 시도할 수 있어요!</p>
+      `,
+      {
+        placeholder: '정답 입력',
+        buttonLabel: '제출!',
+        submitted: false,
+        onSubmit: (v) => socket.emit('player:submit', { value: v })
+      }
+    );
+  } else if (cg.gameId === 'priceGuess') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderTextSubmit(
+      body,
+      `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <p class="center" style="font-size:1.3rem;">${cg.data.itemEmoji} ${escapeHtml(cg.data.itemName)}</p>
+      `,
+      {
+        placeholder: '가격 (원)',
+        inputType: 'number',
+        buttonLabel: '제출하기',
+        submitted,
+        onSubmit: (v) => socket.emit('player:submit', { value: Number(v) })
+      }
+    );
+  } else if (cg.gameId === 'describeGuess') {
+    const isActor = cg.data.actorId === me.id;
+    if (isActor) {
+      if (cg.data.stage === 'describe') {
+        renderTextSubmit(
+          body,
+          `
+            <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+            <div class="secret-box">${
+              myDescribeWord ? '비밀 단어: ' + escapeHtml(myDescribeWord) : '단어를 불러오는 중...'
+            }</div>
+            <p class="center muted">이 단어를 직접 말하지 않고 설명하는 글을 적어주세요!</p>
+          `,
+          {
+            placeholder: '설명을 입력하세요 (단어 직접 언급 금지!)',
+            buttonLabel: '설명 공개하기',
+            submitted: false,
+            onSubmit: (v) => socket.emit('player:submit', { value: v })
+          }
+        );
+      } else {
+        body.innerHTML = `
+          <div class="secret-box">비밀 단어: ${escapeHtml(myDescribeWord || '')}</div>
+          <p class="center">내 설명: "${escapeHtml(cg.data.clue || '')}"</p>
+          <p class="center muted">친구들이 정답을 맞추고 있어요. 기다려주세요!</p>
+        `;
+      }
+    } else if (cg.data.stage === 'describe') {
+      body.innerHTML = `<p class="center" style="font-size:1.2rem;">${escapeHtml(
+        nameOf(cg.data.actorId)
+      )} 님이 설명을 적고 있어요...</p>`;
+    } else {
+      renderTextSubmit(
+        body,
+        `
+          <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+          <p class="center" style="font-size:1.15rem;">💬 "${escapeHtml(cg.data.clue || '')}"</p>
+          <p class="center muted">이 설명이 가리키는 단어는 무엇일까요?</p>
+        `,
+        {
+          placeholder: '정답 입력',
+          buttonLabel: '제출!',
+          submitted: false,
+          onSubmit: (v) => socket.emit('player:submit', { value: v })
+        }
+      );
+    }
+  } else if (cg.gameId === 'memoryDuel') {
+    const [idA, idB] = cg.data.competitors;
+    if (!cg.data.competitors.includes(me.id)) {
+      body.innerHTML = `<p class="center" style="font-size:1.2rem;">🎴 ${escapeHtml(nameOf(idA))} VS ${escapeHtml(
+        nameOf(idB)
+      )}<br/>대결 중입니다! 결과를 지켜봐주세요.</p>`;
+    } else {
+      const myTurn = cg.data.turnPlayerId === me.id;
+      let gridHtml = '<div class="memory-grid" id="memoryGrid">';
+      cg.data.board.forEach((card, i) => {
+        const faceUp = card.revealed || card.matched;
+        gridHtml += `<button class="memory-card${card.matched ? ' matched' : ''}${
+          faceUp ? ' faceup' : ''
+        }" data-i="${i}" ${faceUp || !myTurn || cg.data.flipped.length >= 2 ? 'disabled' : ''}>${
+          faceUp ? card.value : '❓'
+        }</button>`;
+      });
+      gridHtml += '</div>';
+      body.innerHTML = `
+        <p class="center">🎴 ${escapeHtml(nameOf(idA))} ${cg.data.scores[idA] || 0}쌍 : ${
+        cg.data.scores[idB] || 0
+      }쌍 ${escapeHtml(nameOf(idB))}</p>
+        <p class="center" style="font-weight:800;">${
+          myTurn ? '🙋 내 차례예요! 카드 2장을 골라주세요' : `⏳ ${escapeHtml(nameOf(cg.data.turnPlayerId))} 님의 차례`
+        }</p>
+        ${gridHtml}
+      `;
+      if (myTurn) {
+        body.querySelectorAll('.memory-card').forEach((btn) => {
+          btn.onclick = () => {
+            if (btn.disabled) return;
+            SFX.click();
+            socket.emit('player:flipCard', { index: Number(btn.dataset.i) });
+          };
+        });
+      }
+    }
+  } else if (cg.gameId === 'mathQuiz') {
+    renderTextSubmit(
+      body,
+      `
+        <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+        <div class="tutorial-box center" style="font-size:2.2rem;">${escapeHtml(cg.data.question)} = ?</div>
+        <p class="center muted">정답을 입력하고 제출하세요. 틀리면 계속 다시 시도할 수 있어요!</p>
+      `,
+      {
+        placeholder: '정답 숫자',
+        inputType: 'number',
+        buttonLabel: '제출!',
+        submitted: false,
+        onSubmit: (v) => socket.emit('player:submit', { value: v })
+      }
+    );
+  } else if (cg.gameId === 'flashReaction') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <button class="reaction-btn" id="reactionBtn" ${submitted ? 'disabled' : ''}>${
+      submitted ? '제출 완료!' : '기다리세요...'
+    }</button>
+      <p class="center muted">버튼이 초록색으로 바뀌는 순간 최대한 빨리 누르세요! 너무 빨리 누르면 실격이에요.</p>
+    `;
+    if (!submitted) {
+      body.querySelector('#reactionBtn').onclick = () => {
+        SFX.click();
+        socket.emit('player:submit', { value: Date.now() });
+      };
+    }
+  } else if (cg.gameId === 'voteBattle') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderTwoChoiceButtons(
+      body,
+      `<div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+       <p class="center muted">다수결에 속하면 +1점! 눈치껏 골라보세요.</p>`,
+      cg.data.optionA,
+      cg.data.optionB,
+      submitted,
+      (choice) => socket.emit('player:submit', { value: choice })
+    );
+  } else if (cg.gameId === 'votePenalty') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderPlayerVoteButtons(
+      body,
+      `<div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+       <p class="center" style="font-size:1.1rem;">${escapeHtml(cg.data.prompt)}</p>`,
+      submitted,
+      (targetId) => socket.emit('player:submit', { value: targetId }),
+      me.id
+    );
+  } else if (cg.gameId === 'bombRelay') {
+    body.innerHTML = `
+      <p class="center" style="font-size:1.3rem;">💣 지금까지 <b>${cg.data.count}</b>번째!</p>
+      <button class="relay-btn" id="bombBtn">다음 숫자!</button>
+      <p class="center muted">숨겨진 폭탄 숫자에서 누르면 벌칙이에요. 언제 터질지 아무도 몰라요!</p>
+    `;
+    body.querySelector('#bombBtn').onclick = () => {
+      SFX.click();
+      socket.emit('player:bombClick');
+    };
+  } else if (cg.gameId === 'spyVote') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderPlayerVoteButtons(
+      body,
+      `<div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+       <p class="center muted">스파이일 것 같은 사람을 골라주세요!</p>`,
+      submitted,
+      (targetId) => socket.emit('player:submit', { value: targetId }),
+      me.id
+    );
+  } else if (cg.gameId === 'oxQuiz') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderTwoChoiceButtons(
+      body,
+      `<div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+       <p class="center" style="font-size:1.15rem;">${escapeHtml(cg.data.question)}</p>`,
+      '⭕ O (맞다)',
+      '❌ X (아니다)',
+      submitted,
+      (choice) => socket.emit('player:submit', { value: choice === 'A' ? 'O' : 'X' })
+    );
+  } else if (cg.gameId === 'flashMemoryQuiz') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    const stillFlashing = Date.now() < cg.data.flashUntil;
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <div id="flashShown" class="flash-emoji-box" style="display:${stillFlashing ? 'block' : 'none'};">
+        <p class="center muted">아래 카드들을 잘 기억하세요!</p>
+        <div class="flash-emoji-row">${cg.data.shown.map((e) => `<span>${e}</span>`).join('')}</div>
+      </div>
+      <div id="flashAnswer" style="display:${stillFlashing ? 'none' : 'block'};">
+        <p class="center muted">방금 안 나왔던 카드는 무엇일까요?</p>
+        <div class="flash-emoji-row" id="flashOptions">
+          ${cg.data.options
+            .map(
+              (e) =>
+                `<button class="flash-option-btn" data-e="${escapeHtml(e)}" ${submitted ? 'disabled' : ''}>${e}</button>`
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+    if (!submitted) {
+      body.querySelectorAll('.flash-option-btn').forEach((btn) => {
+        btn.onclick = () => {
+          SFX.click();
+          socket.emit('player:submit', { value: btn.dataset.e });
+        };
+      });
+    }
+  } else if (cg.gameId === 'balanceVote') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    renderTwoChoiceButtons(
+      body,
+      `<div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+       <p class="center muted">점수 없는 재미 투표예요! 편하게 골라보세요.</p>`,
+      cg.data.optionA,
+      cg.data.optionB,
+      submitted,
+      (choice) => socket.emit('player:submit', { value: choice })
+    );
+  } else if (cg.gameId === 'predictCount') {
+    const submitted = cg.submittedIds && cg.submittedIds.includes(me.id);
+    body.innerHTML = `
+      <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
+      <p class="center" style="font-size:1.1rem;">${escapeHtml(cg.data.question)}</p>
+      <div class="row" style="margin:10px 0;">
+        <button class="big-btn green" id="predictO" ${submitted ? 'disabled' : ''}>⭕ O</button>
+        <button class="big-btn pink" id="predictX" ${submitted ? 'disabled' : ''}>❌ X</button>
+      </div>
+      <p class="center muted">몇 명이나 정답을 맞출까요? (0~${cg.data.maxPredict}명)</p>
+      <input type="number" id="predictCountInput" min="0" max="${cg.data.maxPredict}" placeholder="예상 인원 수" ${
+      submitted ? 'disabled' : ''
+    } />
+      <p class="center muted" id="predictHint">${
+        submitted ? '제출 완료! 결과를 기다려주세요' : '먼저 O/X를 고른 뒤 예상 인원을 입력하고 제출하세요'
+      }</p>
+      <button class="big-btn orange" id="predictSubmitBtn" ${submitted ? 'disabled' : ''}>제출하기</button>
+    `;
+    if (!submitted) {
+      let chosenAns = null;
+      const oBtn = body.querySelector('#predictO');
+      const xBtn = body.querySelector('#predictX');
+      const highlight = () => {
+        oBtn.style.outline = chosenAns === 'O' ? '3px solid #333' : 'none';
+        xBtn.style.outline = chosenAns === 'X' ? '3px solid #333' : 'none';
+      };
+      oBtn.onclick = () => {
+        chosenAns = 'O';
+        highlight();
+      };
+      xBtn.onclick = () => {
+        chosenAns = 'X';
+        highlight();
+      };
+      body.querySelector('#predictSubmitBtn').onclick = () => {
+        const predictInput = body.querySelector('#predictCountInput');
+        const predict = Number(predictInput.value);
+        if (!chosenAns) {
+          alert('O 또는 X를 먼저 골라주세요!');
+          return;
+        }
+        if (!Number.isFinite(predict) || predict < 0) {
+          alert('예상 인원 수를 입력해주세요!');
+          return;
+        }
+        SFX.click();
+        socket.emit('player:submit', { value: { ans: chosenAns, predict } });
+      };
+    }
   } else {
     renderNumberGrid(body, cg, me);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 신규 게임들에서 재사용하는 공용 입력 UI 헬퍼
+// ---------------------------------------------------------------------------
+function renderTextSubmit(body, extraHtml, opts) {
+  const { placeholder, buttonLabel, inputType, submitted } = opts;
+  body.innerHTML = `
+    ${extraHtml || ''}
+    <input type="${inputType || 'text'}" id="textSubmitInput" placeholder="${escapeHtml(placeholder || '')}" ${
+    submitted ? 'disabled' : ''
+  } />
+    <button class="big-btn green" id="textSubmitBtn" ${submitted ? 'disabled' : ''}>${
+    submitted ? '제출 완료!' : buttonLabel || '제출하기'
+  }</button>
+  `;
+  if (!submitted) {
+    const inputEl = body.querySelector('#textSubmitInput');
+    const submit = () => {
+      const v = inputEl.value.trim();
+      if (!v) return;
+      SFX.click();
+      opts.onSubmit(v);
+      inputEl.value = '';
+      inputEl.focus();
+    };
+    body.querySelector('#textSubmitBtn').onclick = submit;
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+    });
+  }
+}
+
+function renderPlayerVoteButtons(body, extraHtml, submitted, onVote, excludeId) {
+  const candidates = latestState.players.filter((p) => p.connected && p.id !== excludeId);
+  let html = extraHtml || '';
+  html += '<div class="vote-list" id="voteList">';
+  candidates.forEach((p) => {
+    html += `<button class="big-btn small" data-id="${p.id}" ${
+      submitted ? 'disabled' : ''
+    }>${genderIcon(p.gender)} ${escapeHtml(p.nickname)}</button>`;
+  });
+  html += '</div>';
+  body.innerHTML = html;
+  if (!submitted) {
+    body.querySelectorAll('#voteList button').forEach((btn) => {
+      btn.onclick = () => {
+        SFX.click();
+        onVote(btn.dataset.id);
+      };
+    });
+  }
+}
+
+function renderTwoChoiceButtons(body, extraHtml, labelA, labelB, submitted, onChoose) {
+  body.innerHTML = `
+    ${extraHtml || ''}
+    <div class="row">
+      <button class="big-btn green" id="choiceA" ${submitted ? 'disabled' : ''}>${labelA}</button>
+      <button class="big-btn pink" id="choiceB" ${submitted ? 'disabled' : ''}>${labelB}</button>
+    </div>
+  `;
+  if (!submitted) {
+    body.querySelector('#choiceA').onclick = () => {
+      SFX.click();
+      onChoose('A');
+    };
+    body.querySelector('#choiceB').onclick = () => {
+      SFX.click();
+      onChoose('B');
+    };
   }
 }
 
@@ -914,13 +1362,22 @@ function startCountdownLoopIfNeeded() {
       SFX.tick();
       lastTickShown = secLeft;
     }
-    if (cg.gameId === 'reactionDuel' && cg.data.signalAt) {
+    if ((cg.gameId === 'reactionDuel' || cg.gameId === 'flashReaction') && cg.data.signalAt) {
       const btn = document.getElementById('reactionBtn');
       if (btn && !btn.disabled) {
         if (Date.now() >= cg.data.signalAt) {
           btn.classList.add('go');
           btn.innerText = '지금 눌러!';
         }
+      }
+    }
+    if (cg.gameId === 'flashMemoryQuiz' && cg.data.flashUntil) {
+      const shownEl = document.getElementById('flashShown');
+      const answerEl = document.getElementById('flashAnswer');
+      if (shownEl && answerEl) {
+        const stillFlashing = Date.now() < cg.data.flashUntil;
+        shownEl.style.display = stillFlashing ? 'block' : 'none';
+        answerEl.style.display = stillFlashing ? 'none' : 'block';
       }
     }
     if (remainMs <= 0) {
