@@ -57,6 +57,13 @@ socket.on('lieDetectorSecret', (secret) => {
   mySecret = secret;
 });
 
+socket.on('kicked', () => {
+  localStorage.removeItem('playerId');
+  myPlayerId = null;
+  alert('관리자에 의해 자리가 초기화됐어요. 다시 입장해주세요.');
+  render();
+});
+
 socket.on('state', (s) => {
   latestState = s;
   handleSoundCues(s);
@@ -146,13 +153,30 @@ function render() {
 
 function renderTopBar() {
   const bgmLabel = SFX.isBgmOn() ? '🔊 배경음악 끄기' : '🔈 배경음악 켜기';
+  const callRoom = latestState && latestState.callRoom;
   const frag = el(`
     <div class="top-bar">
+      ${callRoom ? '<button class="icon-btn call-btn" id="joinCall">📞 통화방 참여</button>' : ''}
+      ${
+        role === 'admin'
+          ? `<button class="icon-btn" id="toggleCall">${callRoom ? '📴 통화방 닫기' : '📞 통화방 열기'}</button>`
+          : ''
+      }
       <button class="icon-btn" id="bgmToggle">${bgmLabel}</button>
       &nbsp;
       <button class="icon-btn" id="roleReset">🔁 역할 다시 선택</button>
     </div>
   `);
+  if (callRoom) {
+    frag.getElementById('joinCall').onclick = () => {
+      window.open('https://meet.jit.si/' + callRoom.roomName, '_blank');
+    };
+  }
+  if (role === 'admin') {
+    frag.getElementById('toggleCall').onclick = () => {
+      socket.emit(callRoom ? 'admin:endCallRoom' : 'admin:startCallRoom');
+    };
+  }
   frag.getElementById('bgmToggle').onclick = () => {
     if (SFX.isBgmOn()) SFX.stopBgm();
     else SFX.startBgm();
@@ -304,8 +328,16 @@ function renderAdminLobby() {
     }
     row.innerHTML = `
       <span><span class="status-dot"></span>${genderIcon(p.gender)} ${escapeHtml(p.nickname)}</span>
-      <span class="team-badge ${p.team}">${p.team === 'A' ? '🔵A팀' : '🔴B팀'}</span>
+      <span class="row-actions">
+        <span class="team-badge ${p.team}">${p.team === 'A' ? '🔵A팀' : '🔴B팀'}</span>
+        <button class="kick-btn" data-id="${p.id}" title="추방">❌</button>
+      </span>
     `;
+    row.querySelector('.kick-btn').onclick = () => {
+      if (confirm(`${p.nickname} 님을 추방할까요? 자리가 다시 비워져요.`)) {
+        socket.emit('admin:kickPlayer', { playerId: p.id });
+      }
+    };
     playerListEl.appendChild(row);
   });
 
@@ -662,10 +694,15 @@ function renderPlayerPlaying(body, cg, me) {
     const myColor = cg.data.colors ? cg.data.colors[me.id] : '❓';
     body.innerHTML = `
       <div class="timer-bar-outer"><div class="timer-bar-inner" id="playerTimerBar" style="width:100%"></div></div>
-      <p class="center muted">당신만 보이는 비밀 색깔이에요!</p>
+      <p class="center muted">나만 보이는 색깔이에요. 친구들과 말해보며 색깔을 맞춰보세요!</p>
       <div class="color-display">${myColor}</div>
-      <p class="center muted">친구들과 이야기해서 5가지 색이 겹치지 않게 나왔는지 확인해보세요. 시간이 끝나면 자동 공개돼요.</p>
+      <button class="big-btn orange" id="changeColorBtn">🔄 색깔 바꾸기</button>
+      <p class="center muted">모두 다른 색이 되면 자동으로 성공 처리돼요.</p>
     `;
+    body.querySelector('#changeColorBtn').onclick = () => {
+      SFX.click();
+      socket.emit('player:changeColor');
+    };
   } else if (cg.gameId === 'orderRelay') {
     const step = cg.data.currentStep;
     const total = cg.data.total;

@@ -134,7 +134,8 @@ function createInitialState() {
     players: [], // {id, nickname, gender, team, score, connected, claimed, socketId}
     currentGame: null,
     history: [], // {gameName, category, ts, summary}
-    penaltyOverlay: null // {text, ts}
+    penaltyOverlay: null, // {text, ts}
+    callRoom: null // {roomName, startedAt}
   };
 }
 
@@ -224,9 +225,9 @@ function startGame(gameId, opts = {}) {
       data.colors[p.id] = pick(COLOR_POOL);
     });
     tutorialText =
-      '각자에게 비밀 색깔이 하나씩 배정됐어요! 자기 화면에 보이는 색깔은 바꿀 수 없어요.\n' +
-      '친구들과 말로 물어보며 5가지 색이 겹치지 않게 잘 나왔는지 알아내보세요.\n' +
-      '제한시간이 끝나면 자동으로 결과가 공개됩니다.';
+      '각자에게 색깔이 하나씩 배정됐어요! 내 색깔은 나만 화면에서 볼 수 있어요.\n' +
+      '"색깔 바꾸기" 버튼을 누르면 내 색깔이 다음 색으로 바뀌어요.\n' +
+      '친구들과 말로 소통해서 5가지 색이 겹치지 않게 맞춰보세요. 모두 다른 색이 되면 바로 성공!';
   } else if (gameId === 'orderRelay') {
     const ids = connected.map((p) => p.id).sort(() => Math.random() - 0.5);
     data.order = {};
@@ -318,6 +319,24 @@ function beginRound() {
   state.phase = 'playing';
   broadcast();
   roundTimer = setTimeout(resolveRound, cg.duration * 1000);
+  if (cg.gameId === 'colorCollect') maybeResolveColorCollectSuccess();
+}
+
+// 색깔이 다 안 겹치는 순간 (초기 배정이든 색깔 바꾸기 이후든) 바로 성공 처리
+function maybeResolveColorCollectSuccess() {
+  const cg = state.currentGame;
+  if (!cg || cg.gameId !== 'colorCollect' || cg.phase !== 'playing') return;
+  const entries = Object.entries(cg.data.colors);
+  const distinct = new Set(entries.map(([, c]) => c));
+  if (distinct.size !== entries.length) return;
+  clearTimers();
+  entries.forEach(([id]) => addScore(id, 1));
+  const reveal = entries.map(([id, c]) => `${nameOf(id)}:${c}`).join(', ');
+  cg.finalSummary = {
+    success: true,
+    text: `🎉 색깔이 겹치지 않게 다 모았어요! 전원 +1점 — (${reveal})`
+  };
+  finishGame(cg);
 }
 
 function eligiblePlayerIds() {
@@ -806,6 +825,17 @@ io.on('connection', (socket) => {
     broadcast();
   });
 
+  socket.on('player:changeColor', () => {
+    const cg = state.currentGame;
+    const pid = socket.data.playerId;
+    if (!cg || cg.gameId !== 'colorCollect' || cg.phase !== 'playing' || !pid) return;
+    if (!(pid in cg.data.colors)) return;
+    const idx = COLOR_POOL.indexOf(cg.data.colors[pid]);
+    cg.data.colors[pid] = COLOR_POOL[(idx + 1) % COLOR_POOL.length];
+    broadcast();
+    maybeResolveColorCollectSuccess();
+  });
+
   socket.on('admin:endRoundNow', () => {
     if (state.currentGame && state.currentGame.phase === 'playing') resolveRound();
   });
@@ -843,6 +873,34 @@ io.on('connection', (socket) => {
   socket.on('admin:fullReset', () => {
     clearTimers();
     state = createInitialState();
+    broadcast();
+  });
+
+  socket.on('admin:kickPlayer', ({ playerId }) => {
+    if (state.phase !== 'lobby') return;
+    const p = state.players.find((pl) => pl.id === playerId);
+    if (!p) return;
+    const kickedSocketId = p.socketId;
+    p.claimed = false;
+    p.connected = false;
+    p.nickname = null;
+    p.gender = null;
+    p.socketId = null;
+    p.score = 0;
+    if (kickedSocketId) {
+      io.to(kickedSocketId).emit('kicked');
+    }
+    broadcast();
+  });
+
+  socket.on('admin:startCallRoom', () => {
+    const roomName = 'poolvilla-' + Math.random().toString(36).slice(2, 8);
+    state.callRoom = { roomName, startedAt: Date.now() };
+    broadcast();
+  });
+
+  socket.on('admin:endCallRoom', () => {
+    state.callRoom = null;
     broadcast();
   });
 

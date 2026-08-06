@@ -101,6 +101,20 @@ input[type=text], input[type=number], select {
 .team-badge.B { background: #e2574a; }
 .team-badge.none { background: #aaa; }
 
+.row-actions { display: flex; align-items: center; gap: 8px; }
+.kick-btn {
+  border: none;
+  background: #f0f0f7;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.kick-btn:hover { background: #ffd6d6; }
+
+.call-btn { background: #43c68a !important; color: #fff !important; }
+
 .leaderboard-row {
   display: flex;
   justify-content: space-between;
