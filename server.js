@@ -129,13 +129,14 @@ function randInt(min, max) {
 
 function createInitialState() {
   return {
-    phase: 'setup', // setup | lobby | tutorial | playing | roundResult | result
+    phase: 'setup', // setup | lobby | tutorial | playing | roundResult | result | awards
     maxPlayers: 4,
     players: [], // {id, nickname, gender, team, score, connected, claimed, socketId}
     currentGame: null,
     history: [], // {gameName, category, ts, summary}
     penaltyOverlay: null, // {text, ts}
-    callRoom: null // {roomName, startedAt}
+    callRoom: null, // {roomName, startedAt}
+    adminPin: null // 관리자 화면 접근용 PIN (설정 전엔 null = 보호 없음)
   };
 }
 
@@ -157,6 +158,8 @@ function broadcast() {
 // "누가 제출했는지"만 보여준다.
 function sanitizeState() {
   const s = JSON.parse(JSON.stringify(state));
+  s.adminPinSet = !!state.adminPin;
+  delete s.adminPin;
   if (s.currentGame && s.currentGame.phase === 'playing') {
     s.currentGame.submittedIds = Object.keys(s.currentGame.submissions || {});
     delete s.currentGame.submissions;
@@ -700,7 +703,9 @@ io.on('connection', (socket) => {
 
   socket.on('admin:setup', ({ maxPlayers }) => {
     const n = Math.max(2, Math.min(12, Number(maxPlayers) || 4));
+    const keepPin = state.adminPin;
     state = createInitialState();
+    state.adminPin = keepPin;
     state.maxPlayers = n;
     const teamOrder = ['A', 'B'];
     state.players = Array.from({ length: n }, (_, i) => ({
@@ -872,7 +877,37 @@ io.on('connection', (socket) => {
 
   socket.on('admin:fullReset', () => {
     clearTimers();
+    const keepPin = state.adminPin;
     state = createInitialState();
+    state.adminPin = keepPin;
+    broadcast();
+  });
+
+  socket.on('admin:verifyPin', ({ pin }, cb) => {
+    const p = String(pin || '').trim();
+    if (!state.adminPin) {
+      // 아직 PIN이 없으면: 입력한 값이 있으면 그걸 새 PIN으로 설정, 비워뒀으면 보호 없이 통과
+      if (p) state.adminPin = p;
+      if (typeof cb === 'function') cb({ ok: true });
+      return;
+    }
+    if (typeof cb === 'function') cb({ ok: p === state.adminPin });
+  });
+
+  socket.on('admin:clearPin', () => {
+    state.adminPin = null;
+    broadcast();
+  });
+
+  socket.on('admin:showAwards', () => {
+    if (state.phase !== 'lobby') return;
+    state.phase = 'awards';
+    broadcast();
+  });
+
+  socket.on('admin:closeAwards', () => {
+    if (state.phase !== 'awards') return;
+    state.phase = 'lobby';
     broadcast();
   });
 

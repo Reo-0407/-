@@ -23,6 +23,8 @@ let lastTickShown = null;
 let setupCount = Number(localStorage.getItem('lastCount')) || 4;
 let mySecret = null; // 거짓말 탐지 게임: 배우에게만 오는 비밀 지침
 let lastRelayEventTs = 0;
+let showAdminPinPrompt = false;
+let pinError = null;
 const roulette = { instanceId: null, animating: false };
 let rouletteIntervalId = null;
 
@@ -94,6 +96,9 @@ function handleSoundCues(s) {
       } else if (cg.finalSummary.success === false) {
         SFX.fail();
       }
+    } else if (!cg && newPhase === 'awards') {
+      SFX.success();
+      Confetti.launch();
     }
     prevPhase = newPhase;
   }
@@ -131,7 +136,7 @@ function render() {
 
   if (!role) {
     app.innerHTML = '';
-    app.appendChild(renderRoleSelect());
+    app.appendChild(showAdminPinPrompt ? renderAdminPinPrompt() : renderRoleSelect());
     return;
   }
   if (!latestState) {
@@ -223,13 +228,58 @@ function renderRoleSelect() {
     </div>
   `);
   frag.getElementById('pickAdmin').onclick = () => {
-    role = 'admin';
-    sessionStorage.setItem('role', 'admin');
+    pinError = null;
+    showAdminPinPrompt = true;
     render();
   };
   frag.getElementById('pickPlayer').onclick = () => {
     role = 'player';
     sessionStorage.setItem('role', 'player');
+    render();
+  };
+  return frag;
+}
+
+function renderAdminPinPrompt() {
+  const pinSet = latestState && latestState.adminPinSet;
+  const frag = el(`
+    <div style="width:100%; max-width:480px; margin-top:12vh;">
+      <h1>🔒 관리자 입장</h1>
+      <div class="card">
+        <p class="muted">${
+          pinSet
+            ? 'PIN을 입력해주세요.'
+            : '처음 입장이에요. 앞으로 쓸 PIN을 정해주세요 (비워두면 보호 없이 진행돼요).'
+        }</p>
+        <input type="text" id="pinInput" inputmode="numeric" maxlength="6" placeholder="PIN (숫자 4~6자리 권장)" />
+        ${pinError ? `<p style="color:#e2574a; font-weight:700;">${escapeHtml(pinError)}</p>` : ''}
+        <button class="big-btn green" id="pinSubmit">🚪 입장하기</button>
+        <button class="big-btn gray small" id="pinCancel">← 뒤로</button>
+      </div>
+    </div>
+  `);
+  const pinInputEl = frag.getElementById('pinInput');
+  const submit = () => {
+    const pin = pinInputEl.value.trim();
+    socket.emit('admin:verifyPin', { pin }, (res) => {
+      if (res && res.ok) {
+        role = 'admin';
+        sessionStorage.setItem('role', 'admin');
+        showAdminPinPrompt = false;
+        pinError = null;
+      } else {
+        pinError = 'PIN이 틀렸어요. 다시 시도해주세요.';
+      }
+      render();
+    });
+  };
+  frag.getElementById('pinSubmit').onclick = submit;
+  pinInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  });
+  frag.getElementById('pinCancel').onclick = () => {
+    showAdminPinPrompt = false;
+    pinError = null;
     render();
   };
   return frag;
@@ -245,6 +295,11 @@ function renderAdmin() {
 
   if (latestState.phase === 'setup') {
     wrap.appendChild(renderAdminSetup());
+    return wrap;
+  }
+
+  if (latestState.phase === 'awards') {
+    wrap.appendChild(renderAwardsScreen(true));
     return wrap;
   }
 
@@ -296,6 +351,7 @@ function renderAdminLobby() {
       <div class="card">
         <h2>🏆 실시간 리더보드</h2>
         <div id="leaderboard"></div>
+        <button class="big-btn pink" id="showAwards">🏆 시상식 열기</button>
         <button class="big-btn gray small" id="resetHistory">🗑️ 게임 기록 / 점수 초기화</button>
       </div>
 
@@ -313,6 +369,7 @@ function renderAdminLobby() {
       <div class="card">
         <h3>⚠️ 위험 구역</h3>
         <button class="big-btn gray small" id="fullReset">🔄 전체 초기화 (인원부터 다시 설정)</button>
+        <button class="big-btn gray small" id="clearPin">🔓 관리자 PIN 초기화</button>
       </div>
     </div>
   `);
@@ -351,7 +408,13 @@ function renderAdminLobby() {
       socket.emit('admin:fullReset');
     }
   };
+  frag.getElementById('clearPin').onclick = () => {
+    if (confirm('관리자 PIN을 초기화할까요? 다음 입장부터는 PIN 없이 들어올 수 있어요.')) {
+      socket.emit('admin:clearPin');
+    }
+  };
   frag.getElementById('randomGame').onclick = () => socket.emit('admin:startRandomGame');
+  frag.getElementById('showAwards').onclick = () => socket.emit('admin:showAwards');
 
   const gameButtonsEl = frag.getElementById('gameButtons');
   ['협동', '대결', '벌칙'].forEach((cat) => {
@@ -405,6 +468,42 @@ function renderLeaderboard(showTeamTotal) {
     wrap.appendChild(teamRow);
   }
   return wrap;
+}
+
+function renderAwardsScreen(isAdmin) {
+  const claimed = latestState.players.filter((p) => p.claimed);
+  const sorted = [...claimed].sort((a, b) => b.score - a.score);
+  const medals = ['🥇', '🥈', '🥉'];
+  const frag = el(`
+    <div class="card center awards-card">
+      <h1 class="awards-title">🏆 시상식 🏆</h1>
+      <div id="awardsList"></div>
+      ${
+        isAdmin
+          ? '<button class="big-btn green" id="closeAwards">🏠 대기실로 돌아가기</button>'
+          : '<p class="muted">관리자가 대기실로 돌아갈 때까지 기다려주세요.</p>'
+      }
+    </div>
+  `);
+  const listEl = frag.getElementById('awardsList');
+  if (sorted.length === 0) {
+    listEl.innerHTML = '<p class="muted">아직 점수가 없어요.</p>';
+  } else {
+    sorted.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.className = 'award-row' + (i < 3 ? ' top' + (i + 1) : '');
+      row.innerHTML = `
+        <span class="award-rank">${medals[i] || i + 1 + '위'}</span>
+        <span class="award-name">${genderIcon(p.gender)} ${escapeHtml(p.nickname)}</span>
+        <span class="award-score">${p.score}점</span>
+      `;
+      listEl.appendChild(row);
+    });
+  }
+  if (isAdmin) {
+    frag.getElementById('closeAwards').onclick = () => socket.emit('admin:closeAwards');
+  }
+  return frag;
 }
 
 function adminEligibleIds(cg) {
@@ -513,6 +612,11 @@ function renderPlayer() {
 
   if (!latestState.currentGame || latestState.phase === 'lobby') {
     wrap.appendChild(renderPlayerLobby(me));
+    return wrap;
+  }
+
+  if (latestState.phase === 'awards') {
+    wrap.appendChild(renderAwardsScreen(false));
     return wrap;
   }
 

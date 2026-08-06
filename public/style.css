@@ -266,6 +266,27 @@ input[type=text], input[type=number], select {
   color: #6a5acd;
 }
 
+.awards-card { padding-top: 30px; padding-bottom: 30px; }
+.awards-title { font-size: 1.6rem; color: #222; text-shadow: none; margin-bottom: 20px; }
+.award-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #f6f6fb;
+  margin-bottom: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.award-row .award-rank { font-size: 1.3rem; width: 2.4em; text-align: left; }
+.award-row .award-name { flex: 1; text-align: left; }
+.award-row.top1 { background: linear-gradient(135deg, #ffe9a8, #ffd166); font-size: 1.25rem; padding: 18px 16px; }
+.award-row.top1 .award-rank { font-size: 1.8rem; }
+.award-row.top2 { background: linear-gradient(135deg, #eef1f5, #d9dee5); font-size: 1.15rem; }
+.award-row.top3 { background: linear-gradient(135deg, #f5dcc4, #e6c19c); }
+
 .secret-box {
   background: #2b2b3a;
   color: #ffd93d;
