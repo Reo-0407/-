@@ -19,6 +19,11 @@
     // ---- 근접무기 ----
     knife:   { name: '칼', slot: 'melee', melee: true, dmg: 40, head: 1, rpm: 130, mag: 0, reload: 0, range: [2.3, 2.3], move: 1.15, auto: true, sfx: 'swing', desc: '빠르고 이동이 가장 빨라요' },
     axe:     { name: '도끼', slot: 'melee', melee: true, dmg: 75, head: 1, rpm: 55, mag: 0, reload: 0, range: [2.7, 2.7], move: 1.0, sfx: 'swing', desc: '느리지만 두 번이면 끝' },
+    // ---- 유틸리티 (한 라운드에 1개, 쓰면 직전 무기로 자동 복귀) ----
+    frag:    { name: '수류탄', slot: 'utility', util: 'frag', dmg: 110, rpm: 60, mag: 1, fuse: 1.8, radius: 6, move: 1.0, desc: '1.8초 뒤 폭발, 반경 6m (나도 맞아요)' },
+    flash:   { name: '섬광탄', slot: 'utility', util: 'flash', rpm: 60, mag: 1, fuse: 1.2, radius: 25, move: 1.0, desc: '쳐다보는 적의 시야를 하얗게 (나도 쳐다보면 눈이 멀어요)' },
+    smoke:   { name: '연막탄', slot: 'utility', util: 'smoke', rpm: 60, mag: 1, fuse: 1.0, radius: 3.4, move: 1.0, desc: '10초 동안 연기로 시야를 가려요' },
+    heal:    { name: '치료 음료', slot: 'utility', util: 'heal', rpm: 60, mag: 1, heal: 40, move: 1.0, desc: '체력 40 회복 (가득 차 있으면 못 써요)' },
   };
 
   const bySlot = (slot) => Object.keys(list).filter((k) => list[k].slot === slot);
@@ -32,7 +37,7 @@
   // 재장전 시작. 탄창에 탄이 남아 있으면 조금 더 빠름(0.85배). 근접무기/가득 찬 탄창은 무시.
   function reload(g) {
     const w = g.w;
-    if (w.melee || g.reload || g.ammo >= w.mag) return false;
+    if (w.melee || w.util || g.reload || g.ammo >= w.mag) return false;
     if (w.shell) g.reload = { t: 0, next: w.startup, total: w.startup + (w.mag - g.ammo - 1) * w.shell };
     else g.reload = { t: 0, total: w.reload * (g.ammo > 0 ? 0.85 : 1) };
     g.burstLeft = 0;
@@ -74,6 +79,7 @@
     if (g.cd > 0 || !trigger || !(w.auto || edge)) return 0;
 
     if (w.melee) { g.cd = 60 / w.rpm; return 1; }
+    if (w.util) { if (g.ammo <= 0) return 0; g.ammo--; g.cd = 0.6; return 1; } // 유틸리티: 한 번 쓰면 끝
     if (g.ammo <= 0) { g.empty = true; reload(g); return 0; } // 탄이 없는데 방아쇠를 당기면 "딸깍" 후 자동 장전
     g.ammo--; shots = 1;
     if (w.burst) { g.burstLeft = w.burst - 1; g.cd = w.burstGap; }

@@ -116,3 +116,11 @@ details .row { margin-top: 10px; }
   #hud-hp { width: 150px; bottom: 10px; }
   #banner { font-size: 32px; top: 22%; }
 }
+
+#flashov { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 4; }
+#sb { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 5; background: #000c; border-radius: 12px; padding: 10px 14px; min-width: min(420px, 92vw); max-height: 70vh; overflow-y: auto; }
+#sb.hidden { display: none !important; }
+#sb table { width: 100%; font-size: 14px; }
+#sb tr.a td:first-child { color: #8fc0ff; } #sb tr.b td:first-child { color: #ff9aa0; }
+#hud-top { pointer-events: auto; }
+#hud-top { z-index: 3; }

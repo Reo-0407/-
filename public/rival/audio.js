@@ -73,6 +73,11 @@
     reload() { noise(0.05, 3000, 2, 0.25); setTimeout(() => noise(0.06, 2000, 2, 0.3), 160); },
     beep(high) { tone(high ? 1100 : 700, high ? 1100 : 700, 0.12, 0.25, 'square'); },
     win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, f, 0.22, 0.25, 'triangle'), i * 120)); },
+    // 폭발은 멀수록 작게 (vol 0~1)
+    boom(vol) { vol = vol === undefined ? 1 : vol; noise(0.7, 500, 0.4, 0.9 * vol, 'lowpass'); tone(90, 28, 0.6, 0.9 * vol); },
+    flashBang(vol) { vol = vol === undefined ? 1 : vol; noise(0.25, 4000, 0.6, 0.6 * vol, 'highpass'); tone(3200, 2800, 0.5, 0.18 * vol, 'sine'); },
+    smokePop() { noise(0.35, 700, 0.5, 0.35, 'bandpass'); },
+    drink() { tone(300, 520, 0.12, 0.2, 'sine'); setTimeout(() => tone(340, 600, 0.12, 0.2, 'sine'), 170); setTimeout(() => tone(500, 800, 0.15, 0.22, 'triangle'), 360); },
     lose() { [392, 330, 262].forEach((f, i) => setTimeout(() => tone(f, f * 0.95, 0.3, 0.25, 'sawtooth'), i * 160)); },
   };
 })();

@@ -128,29 +128,11 @@
       return out;
     }
 
-    // ---------------- 봇 몸 만들기 (상자 조합 인형) ----------------
-    function buildMesh(team) {
-      const shirt = team === 'A' ? 0x3b82f6 : 0xe5484d, pants = 0x2a2f3a, skin = 0xf0c8a0;
-      const mk = (w, h, d, color) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
-      const root = new THREE.Group();
-      root.rotation.order = 'YXZ';
-      const legs = [];
-      [-0.12, 0.12].forEach((x) => {
-        const pivot = new THREE.Group(); pivot.position.set(x, 0.8, 0);
-        const leg = mk(0.19, 0.8, 0.21, pants); leg.position.y = -0.4; pivot.add(leg);
-        root.add(pivot); legs.push(pivot);
-      });
-      const torso = mk(0.5, 0.62, 0.28, shirt); torso.position.y = 1.11; root.add(torso);
-      const head = mk(0.27, 0.27, 0.27, skin); head.position.y = 1.58; root.add(head);
-      const gun = mk(0.07, 0.1, 0.55, 0x1c1f26); gun.position.set(0.2, 1.15, -0.3); root.add(gun);
-      [-0.3, 0.3].forEach((x) => { const arm = mk(0.13, 0.5, 0.15, shirt); arm.position.set(x, 1.12, x > 0 ? -0.12 : -0.05); arm.rotation.x = -0.9; root.add(arm); });
-      return { root, legs, torso, head };
-    }
-
     // ---------------- 봇 생성/제거 ----------------
     function spawn(opts) { // opts: { team, name, diff, x, z, yaw, primary }
       const pid = opts.primary || PRIMARIES[Math.floor(Math.random() * PRIMARIES.length)];
-      const m = buildMesh(opts.team);
+      const m = RivalModels.humanoid(opts.team, pid, opts.name);
+      m.tag.visible = opts.team === 'A'; // 이름표는 아군만
       const b = {
         isBot: true, id: 'bot' + Math.random().toString(36).slice(2, 7), name: opts.name, team: opts.team,
         x: opts.x, z: opts.z, y: 1.7, vy: 0, onGround: true, yaw: opts.yaw, pitch: 0,
@@ -159,7 +141,7 @@
         gun: W.create(pid), pistol: W.create('pistol'),
         mesh: m, target: null, targetVisible: false, lastSeen: null, lastSeenT: -99, reactT: 0.5, aimHead: false,
         percT: Math.random() * 0.12, strafeDir: 0, strafeT: 0, path: null, pathT: 0, huntT: 0, goal: null,
-        stuckT: 0, lastPX: opts.x, lastPZ: opts.z, stuckCheckT: 0.5, walkPhase: 0, moving: false, flash: 0, deadT: 0,
+        stuckT: 0, lastPX: opts.x, lastPZ: opts.z, stuckCheckT: 0.5, walkPhase: 0, moving: false, flash: 0, deadT: 0, blindT: 0, muzzleT: 0,
       };
       m.root.position.set(b.x, 0, b.z);
       m.root.rotation.y = b.yaw;
@@ -168,13 +150,19 @@
       return b;
     }
 
+    // 라운드마다 봇을 지울 때 전용 재질/이름표 텍스처를 반납(공유 조각은 그대로 둠)
     function clear() {
-      bots.forEach((b) => G.scene.remove(b.mesh.root));
+      bots.forEach((b) => {
+        G.scene.remove(b.mesh.root);
+        b.mesh.torso.material.dispose();
+        b.mesh.tag.material.map.dispose(); b.mesh.tag.material.dispose();
+      });
       bots.length = 0;
     }
 
     // ---------------- 인지: 가장 가까운 "보이는" 적 찾기 ----------------
     function perceive(b, now) {
+      if (b.blindT > 0) { b.targetVisible = false; return; } // 섬광탄에 눈이 멂
       const enemies = G.enemiesOf(b.team);
       let best = null, bd = 1e9;
       for (const e of enemies) {
@@ -187,6 +175,7 @@
         if (Math.abs(ang) > 1.15 && dist > 7 && !heard) continue; // 시야각 약 130도
         const t = phys.rayBoxes(b.x, b.y, b.z, dx / dist, dy / dist, dz / dist, dist);
         if (t < dist - 0.6) continue; // 중간에 벽이 있음
+        if (G.smoked(b.x, b.y, b.z, e.x, e.y - 0.5, e.z)) continue; // 연막 속
         best = e; bd = dist;
       }
       if (best) {
@@ -231,6 +220,7 @@
       b.percT -= dt;
       if (b.percT <= 0) { b.percT = 0.12; perceive(b, now); }
       if (b.firedT > 0) b.firedT -= dt;
+      if (b.blindT > 0) b.blindT -= dt;
 
       let trigger = false, mx = 0, mz = 0, speed = 0;
       const sin = Math.sin(b.yaw), cos = Math.cos(b.yaw);
@@ -311,7 +301,7 @@
       for (const b of bots) {
         const m = b.mesh;
         if (!b.alive) { // 쓰러지는 연출
-          b.deadT += dt;
+          b.deadT += dt; m.tag.visible = false; if (m.flash) m.flash.visible = false;
           m.root.rotation.x = Math.min(Math.PI / 2, b.deadT * 4);
           m.root.position.y = Math.min(0.15, b.deadT * 0.6); // 누운 몸이 바닥에 닿도록 살짝 띄움
           continue;
@@ -322,6 +312,7 @@
         if (b.moving) b.walkPhase += dt * 9;
         const sw = b.moving ? Math.sin(b.walkPhase) * 0.7 : 0;
         m.legs[0].rotation.x = sw; m.legs[1].rotation.x = -sw;
+        if (m.flash) { if (b.muzzleT > 0) b.muzzleT -= dt; m.flash.visible = b.muzzleT > 0; }
         if (b.flash > 0) { b.flash -= dt; m.torso.material.emissive.setHex(b.flash > 0 ? 0xaa1111 : 0x000000); }
       }
     }
