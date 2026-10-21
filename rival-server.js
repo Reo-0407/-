@@ -62,6 +62,9 @@ router.post('/join', (req, res) => {
 router.post('/report', (req, res) => {
   const p = players[String(req.body.id || '')];
   if (!p) return res.status(404).json({ error: '먼저 닉네임을 등록하세요.' });
+  // 한 매치는 최소 몇십 초는 걸리므로, 15초 안의 연속 보고는 막음 (리더보드 조작 완화)
+  if (p.lastReport && Date.now() - p.lastReport < 15000) return res.status(429).json({ error: '기록 저장이 너무 빨라요.' });
+  p.lastReport = Date.now();
   p.kills += clampInt(req.body.kills, 50);
   p.deaths += clampInt(req.body.deaths, 50);
   if (req.body.won === true) p.wins += 1;

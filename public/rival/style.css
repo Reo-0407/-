@@ -18,8 +18,6 @@ th, td { padding: 6px 4px; text-align: center; border-bottom: 1px solid #232b42;
 td:nth-child(2), th:nth-child(2) { text-align: left; }
 #game { position: fixed; inset: 0; }
 #c { width: 100%; height: 100%; display: block; }
-#crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 28px; color: #fff; text-shadow: 0 0 4px #000; pointer-events: none; }
-#click-to-play { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: #000a; font-size: 26px; font-weight: 700; cursor: pointer; }
 
 /* ---- 모바일 조작 ---- */
 #touch-ui { position: absolute; inset: 0; touch-action: none; }
@@ -27,8 +25,94 @@ td:nth-child(2), th:nth-child(2) { text-align: left; }
 #look-zone { position: absolute; right: 0; top: 0; width: 55%; height: 100%; touch-action: none; }
 #joy-base { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: #ffffff22; border: 2px solid #ffffff66; pointer-events: none; }
 #joy-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: #ffffffaa; }
-.tbtn { position: absolute; right: max(24px, env(safe-area-inset-right)); bottom: max(28px, env(safe-area-inset-bottom)); width: 84px; height: 84px; border-radius: 50%; border: 2px solid #ffffff88; background: #ff4d5eaa; color: #fff; font-size: 16px; font-weight: 700; touch-action: none; }
-.tbtn:active { background: #ff4d5e; }
-.tbtn.small { right: auto; left: max(12px, env(safe-area-inset-left)); bottom: auto; top: 12px; width: 64px; height: 36px; border-radius: 10px; background: #0008; font-size: 13px; }
 #rotate-hint { display: none; position: absolute; inset: 0; z-index: 10; background: #0b0e14; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; text-align: center; padding: 20px; }
 @media (orientation: portrait) and (pointer: coarse) { #rotate-hint { display: flex; } }
+
+/* ---- 로비 추가 ---- */
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
+.row select, .row input[type=range] { flex: 0 0 55%; padding: 8px; border-radius: 8px; border: 2px solid #2a3350; background: #0f1422; color: #fff; font-size: 15px; width: auto; text-align: left; }
+.row input[type=checkbox] { flex: 0 0 24px; width: 24px; height: 24px; padding: 0; }
+.panel h3 { margin: 8px 0 0; font-size: 15px; color: #9aa6c0; }
+details { background: #0f1422; border-radius: 10px; padding: 10px; }
+summary { cursor: pointer; font-weight: 700; }
+details .row { margin-top: 10px; }
+.slotrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.slotrow > span { width: 52px; color: #7d89a6; font-size: 13px; }
+.chip { padding: 8px 10px; border-radius: 8px; border: 2px solid #2a3350; background: #0f1422; color: #cfd6e6; font-size: 14px; cursor: pointer; }
+.chip.on { border-color: #ff4d5e; background: #3a1c24; color: #fff; }
+
+/* ---- 경기 HUD ---- */
+#game { font-family: system-ui, 'Malgun Gothic', sans-serif; }
+#game .hidden { display: none !important; }
+#scope { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at center, transparent 0, transparent 44vmin, #000 44.3vmin); }
+#scope i, #scope b { position: absolute; background: #000; }
+#scope i { left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; }
+#scope b { top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; }
+#xh { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; --gap: 8px; }
+#xh i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+#xh .xl, #xh .xr { width: 9px; height: 2px; margin-top: -1px; top: 0; }
+#xh .xl { left: calc(var(--gap) * -1 - 9px); }
+#xh .xr { left: var(--gap); }
+#xh .xt, #xh .xb { width: 2px; height: 9px; margin-left: -1px; left: 0; }
+#xh .xt { top: calc(var(--gap) * -1 - 9px); }
+#xh .xb { top: var(--gap); }
+#xh.off { display: none; }
+#hitmark { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none; opacity: 0; transition: opacity .15s; background:
+  linear-gradient(45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%),
+  linear-gradient(-45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%); color: #fff; }
+#hitmark.on { opacity: 1; transition: none; }
+#hitmark.head { color: #ff3b3b; }
+#dmgflash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(circle at center, transparent 40%, #d11 100%); }
+#reloadbar { position: absolute; left: 50%; top: calc(50% + 40px); width: 120px; height: 6px; margin-left: -60px; background: #0008; border-radius: 3px; overflow: hidden; pointer-events: none; }
+#reloadbar i { display: block; height: 100%; width: 0; background: #ffd24a; }
+#hud-top { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; align-items: center; background: #000a; padding: 6px 16px; border-radius: 12px; font-weight: 800; font-size: 24px; pointer-events: none; }
+#sc-me { color: #5aa2ff; } #sc-foe { color: #ff6b73; } #sc-timer { font-size: 20px; min-width: 56px; text-align: center; }
+#sc-round { white-space: nowrap; position: absolute; top: 100%; left: 0; right: 0; text-align: center; font-size: 12px; font-weight: 600; color: #cfd6e6; margin-top: 2px; text-shadow: 0 0 3px #000; }
+#feed { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; pointer-events: none; }
+#feed div { background: #000a; padding: 4px 10px; border-radius: 8px; font-size: 14px; }
+#feed div.me { border: 1px solid #ff4d5e; }
+#hud-hp { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 16px; width: 200px; pointer-events: none; }
+#hud-hp .bar { height: 12px; background: #0009; border-radius: 6px; overflow: hidden; border: 1px solid #fff3; }
+#hud-hp i { display: block; height: 100%; width: 100%; background: #4cd964; transition: width .15s; }
+#hp-text { font-size: 26px; text-shadow: 0 0 4px #000; }
+#hud-ammo { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: 16px; text-align: right; pointer-events: none; text-shadow: 0 0 4px #000; }
+#ammo-main { font-size: 40px; font-weight: 800; line-height: 1; }
+#ammo-name { font-size: 14px; color: #cfd6e6; margin-bottom: 6px; }
+#slots { display: flex; gap: 6px; justify-content: flex-end; }
+#slots .s { padding: 3px 8px; border-radius: 6px; background: #0008; font-size: 12px; border: 1px solid #fff2; }
+#slots .s.on { background: #ff4d5ecc; border-color: #fff; }
+#banner { position: absolute; left: 0; right: 0; top: 28%; text-align: center; font-size: 44px; font-weight: 900; text-shadow: 0 0 10px #000, 0 0 3px #000; pointer-events: none; }
+#banner small { display: block; font-size: 18px; font-weight: 600; margin-top: 6px; }
+#overlay, #result { position: absolute; inset: 0; z-index: 6; background: #000b; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#overlay.hidden, #result.hidden { display: none !important; }
+.ov-box { display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; max-width: 92vw; }
+.ov-box h2 { margin: 0; font-size: 34px; }
+.ov-box p { margin: 0; }
+
+/* ---- 모바일 조작 ---- */
+#touch-ui { position: absolute; inset: 0; touch-action: none; }
+#joy-zone { position: absolute; left: 0; top: 0; width: 45%; height: 100%; touch-action: none; }
+#look-zone { position: absolute; right: 0; top: 0; width: 55%; height: 100%; touch-action: none; }
+#joy-base { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: #ffffff22; border: 2px solid #ffffff66; pointer-events: none; }
+#joy-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: #ffffffaa; }
+.tbtn { position: absolute; border-radius: 50%; border: 2px solid #ffffff88; background: #ff4d5e99; color: #fff; font-size: 15px; font-weight: 800; touch-action: none; }
+.tbtn:active, .tbtn.on { background: #ff4d5e; }
+.tbtn.fire { width: 96px; height: 96px; right: max(24px, env(safe-area-inset-right)); bottom: 36px; font-size: 18px; }
+.tbtn.ads { width: 64px; height: 64px; right: max(130px, calc(env(safe-area-inset-right) + 106px)); bottom: 120px; background: #3b82f699; }
+.tbtn.jump { width: 64px; height: 64px; right: max(24px, env(safe-area-inset-right)); bottom: 146px; background: #ffffff33; }
+.tbtn.rel { width: 56px; height: 56px; right: max(140px, calc(env(safe-area-inset-right) + 116px)); bottom: 36px; background: #ffd24a99; color: #000; font-size: 13px; }
+.tbtn.small { right: auto; left: max(12px, env(safe-area-inset-left)); bottom: auto; top: 12px; width: 64px; height: 36px; border-radius: 10px; background: #0008; font-size: 13px; }
+#touch-slots { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; display: flex; gap: 8px; }
+#touch-slots button { padding: 8px 12px; border-radius: 10px; border: 2px solid #fff6; background: #0008; color: #fff; font-size: 13px; font-weight: 700; }
+#touch-slots button.on { background: #ff4d5ecc; border-color: #fff; }
+#rotate-hint { display: none; position: absolute; inset: 0; z-index: 10; background: #0b0e14; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; text-align: center; padding: 20px; }
+@media (orientation: portrait) and (pointer: coarse) { #rotate-hint { display: flex; } }
+@media (pointer: coarse) {
+  #hud-ammo { right: auto; left: 50%; transform: translateX(-50%); bottom: 54px; text-align: center; }
+  #ammo-main { font-size: 30px; }
+  #slots { display: none; }
+  #feed { top: 56px; right: 8px; }
+  #feed div { font-size: 12px; padding: 3px 8px; }
+  #hud-hp { width: 150px; bottom: 10px; }
+  #banner { font-size: 32px; top: 22%; }
+}
