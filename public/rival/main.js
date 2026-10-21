@@ -84,36 +84,24 @@
   const P = { x: 0, y: 1.7, z: 8, vy: 0, yaw: 0, pitch: 0, onGround: true };
   const EYE = 1.7, RADIUS = 0.4;
 
-  function addBox(x, y, z, w, h, d, color) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
-    m.position.set(x, y, z);
-    scene.add(m);
-    boxes.push({ minX: x - w / 2, maxX: x + w / 2, minY: y - h / 2, maxY: y + h / 2, minZ: z - d / 2, maxZ: z + d / 2 });
-  }
+  let world = null; // maps.js 가 만들어 주는 { boxes, spawns }
+  let mySpawn = { x: 0, z: 27, yaw: 0 };
 
   function buildWorld() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87a7c7);
-    scene.fog = new THREE.Fog(0x87a7c7, 30, 90);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.6);
-    sun.position.set(10, 20, 5);
-    scene.add(sun);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ color: 0x5b6b4f }));
-    floor.rotation.x = -Math.PI / 2;
-    scene.add(floor);
-    // 바깥 벽
-    addBox(0, 2, -30, 60, 4, 1, 0x888e9a);
-    addBox(0, 2, 30, 60, 4, 1, 0x888e9a);
-    addBox(-30, 2, 0, 1, 4, 60, 0x888e9a);
-    addBox(30, 2, 0, 1, 4, 60, 0x888e9a);
-    // 엄폐물(상자)
-    addBox(-6, 1, -4, 4, 2, 2, 0xb5793a);
-    addBox(6, 1, -8, 3, 2, 3, 0xb5793a);
-    addBox(0, 0.75, -2, 2, 1.5, 2, 0x8a5a2b);
-    addBox(-10, 1.5, 6, 2, 3, 6, 0x6d7a8c);
-    addBox(10, 0.5, 4, 5, 1, 5, 0xc9a45a); // 올라갈 수 있는 낮은 상자
-    addBox(0, 2, -16, 10, 4, 1.5, 0x6d7a8c);
+    scene.background = new THREE.Color(0x9db7d4);
+    scene.fog = new THREE.Fog(0x9db7d4, 45, 130);
+    world = RivalMap.build(scene, { shadows: !isTouch }); // 그림자는 폰에서 끔(느려짐 방지)
+    boxes.length = 0;
+    world.boxes.forEach((bx) => boxes.push(bx));
+    renderer.shadowMap.enabled = !isTouch;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
+
+  function respawn() {
+    const list = world.spawns.A;
+    mySpawn = list[Math.floor(Math.random() * list.length)];
+    Object.assign(P, { x: mySpawn.x, y: EYE, z: mySpawn.z, vy: 0, yaw: mySpawn.yaw, pitch: 0, onGround: true });
   }
 
   function resize() {
@@ -123,14 +111,31 @@
     camera.updateProjectionMatrix();
   }
 
-  // 간단한 상자 충돌: x, z 방향을 따로 확인
-  function hitsBox(x, y, z) {
+  const STEP_H = 0.55; // 이 높이까지의 턱/계단은 점프 없이 자동으로 오름
+
+  // (x,y,z)에 서 있을 때 겹치는 상자들 중 가장 높은 윗면 높이. 안 겹치면 null
+  function blockTop(x, y, z) {
     const feet = y - EYE, head = y + 0.2;
+    let top = null;
     for (const b of boxes) {
       if (x + RADIUS > b.minX && x - RADIUS < b.maxX && z + RADIUS > b.minZ && z - RADIUS < b.maxZ
-          && head > b.minY && feet < b.maxY - 0.01) return b;
+          && head > b.minY && feet < b.maxY - 0.01) {
+        if (top === null || b.maxY > top) top = b.maxY;
+      }
     }
-    return null;
+    return top;
+  }
+  const hitsBox = (x, y, z) => blockTop(x, y, z) !== null;
+
+  // 이동 시도: 막히면 계단 높이 이하일 때 올라서고, 아니면 벽에 막힘(옆으로 미끄러짐은 축 분리로 처리)
+  function tryMove(nx, nz) {
+    const top = blockTop(nx, P.y, nz);
+    if (top === null) { P.x = nx; P.z = nz; return; }
+    if (!P.onGround) return;
+    const need = top - (P.y - EYE);
+    if (need > 0 && need <= STEP_H && !hitsBox(nx, P.y + need + 0.02, nz)) {
+      P.y += need + 0.02; P.x = nx; P.z = nz;
+    }
   }
 
   function step(dt) {
@@ -147,8 +152,8 @@
     const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
     const dx = (fx * cos + fz * sin) * speed * dt;
     const dz = (-fx * sin + fz * cos) * speed * dt;
-    if (!hitsBox(P.x + dx, P.y, P.z)) P.x += dx;
-    if (!hitsBox(P.x, P.y, P.z + dz)) P.z += dz;
+    tryMove(P.x + dx, P.z);
+    tryMove(P.x, P.z + dz);
 
     // 점프 + 중력
     if (keys['Space'] && P.onGround) { P.vy = 7.5; P.onGround = false; }
@@ -167,7 +172,7 @@
       P.vy = 0; ny = P.y; // 머리 부딪힘
     }
     P.y = ny;
-    if (P.y < -20) { P.x = 0; P.y = EYE; P.z = 8; P.vy = 0; } // 혹시 떨어지면 리스폰
+    if (P.y < -20) respawn(); // 혹시 떨어지면 리스폰
   }
 
   function loop(t) {
@@ -192,7 +197,7 @@
       resize();
       window.addEventListener('resize', resize);
     }
-    Object.assign(P, { x: 0, y: EYE, z: 8, vy: 0, yaw: 0, pitch: 0 });
+    respawn();
     $('click-to-play').textContent = isTouch ? '화면을 터치해서 시작' : '클릭해서 시작 (Esc: 로비로)';
     $('click-to-play').classList.remove('hidden');
     $('touch-ui').classList.toggle('hidden', !isTouch);
@@ -306,6 +311,9 @@
     jump.addEventListener('touchcancel', jumpEnd, { passive: false });
     $('btn-exit').addEventListener('touchstart', (e) => { e.preventDefault(); leaveGame(); }, { passive: false });
   })();
+
+  // 주소 끝에 ?debug 를 붙였을 때만 테스트용으로 내부 상태를 노출
+  if (location.search.indexOf('debug') >= 0) window.__rival = { P, keys, boxes, respawn };
 
   // ---- 시작 ----
   if (myNick) {
