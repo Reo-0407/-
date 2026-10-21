@@ -21,8 +21,33 @@
     <div class="lobby">
       <div class="panel">
         <h1 class="logo small">RIVAL</h1>
-        <p>안녕하세요, <b id="lobby-nick"></b>님</p>
-        <button id="play-btn" class="btn">맵 둘러보기 (이동 테스트)</button>
+        <p>안녕하세요, <b id="lobby-nick"></b>님<br><span id="my-stats" class="hint"></span></p>
+        <div class="row"><label for="set-mode">모드</label>
+          <select id="set-mode">
+            <option value="1">1 vs 1</option>
+            <option value="2">2 vs 2</option>
+            <option value="3">3 vs 3</option>
+            <option value="4">4 vs 4</option>
+          </select></div>
+        <div class="row"><label for="set-diff">AI 난이도</label>
+          <select id="set-diff">
+            <option value="easy">쉬움</option>
+            <option value="normal">보통</option>
+            <option value="hard">어려움</option>
+            <option value="insane">지옥</option>
+          </select></div>
+        <button id="play-btn" class="btn">매치 시작</button>
+
+        <h3>로드아웃 (들고 갈 무기)</h3>
+        <div id="loadout"></div>
+        <p id="weapon-info" class="hint"></p>
+
+        <details>
+          <summary>설정</summary>
+          <div class="row"><label for="set-sens">감도 <b id="v-sens"></b></label><input id="set-sens" type="range" min="0.3" max="3" step="0.1"></div>
+          <div class="row"><label for="set-fov">시야각 <b id="v-fov"></b></label><input id="set-fov" type="range" min="60" max="100" step="1"></div>
+          <div class="row"><label for="set-auto">자동 발사 (적에게 조준점이 닿으면 자동으로 쏨)</label><input id="set-auto" type="checkbox"></div>
+        </details>
         <button id="nick-change" class="btn ghost">닉네임 변경</button>
         <p id="controls-hint" class="hint"></p>
       </div>
@@ -37,15 +62,48 @@
   <!-- 3) 게임 -->
   <div id="game" class="hidden">
     <canvas id="c"></canvas>
-    <div id="crosshair">+</div>
-    <div id="click-to-play" class="hidden"></div>
+    <div id="scope" class="hidden"><i></i><b></b></div>
+    <div id="xh"><i class="xl"></i><i class="xr"></i><i class="xt"></i><i class="xb"></i></div>
+    <div id="hitmark"></div>
+    <div id="dmgflash"></div>
+    <div id="flashov"></div>
+    <div id="reloadbar" class="hidden"><i></i></div>
+
+    <div id="hud-top"><span id="sc-me">0</span><span id="sc-timer">1:30</span><span id="sc-foe">0</span><div id="sc-round"></div></div>
+    <div id="feed"></div>
+    <div id="hud-hp"><div class="bar"><i id="hp-fill"></i></div><b id="hp-text">100</b></div>
+    <div id="hud-ammo"><div id="ammo-main">30</div><div id="ammo-name"></div><div id="slots"></div></div>
+    <div id="banner"></div>
+    <div id="sb" class="hidden"><table><thead><tr><th>이름</th><th>팀</th><th>킬</th><th>데스</th><th>체력</th></tr></thead><tbody id="sb-body"></tbody></table></div>
+
+    <div id="overlay">
+      <div class="ov-box">
+        <h2 id="ov-title">RIVAL</h2>
+        <p id="ov-sub" class="hint"></p>
+        <button id="ov-resume" class="btn">시작</button>
+        <button id="ov-exit" class="btn ghost">로비로 나가기</button>
+      </div>
+    </div>
+    <div id="result" class="hidden">
+      <div class="ov-box">
+        <h2 id="res-title"></h2>
+        <p id="res-score"></p>
+        <p id="res-stats" class="hint"></p>
+        <button id="res-again" class="btn">다시 하기</button>
+        <button id="res-lobby" class="btn ghost">로비로</button>
+      </div>
+    </div>
 
     <!-- 모바일 전용 조작 UI (터치 기기에서만 보임) -->
     <div id="touch-ui" class="hidden">
       <div id="joy-zone"></div>
       <div id="look-zone"></div>
       <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
-      <button id="btn-jump" class="tbtn">점프</button>
+      <button id="btn-fire" class="tbtn fire">발사</button>
+      <button id="btn-ads" class="tbtn ads">조준</button>
+      <button id="btn-reload" class="tbtn rel">장전</button>
+      <button id="btn-jump" class="tbtn jump">점프</button>
+      <div id="touch-slots"></div>
       <button id="btn-exit" class="tbtn small">나가기</button>
     </div>
     <div id="rotate-hint">📱 폰을 가로로 돌려주세요</div>
@@ -53,6 +111,11 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="maps.js"></script>
+  <script src="weapons.js"></script>
+  <script src="models.js"></script>
+  <script src="physics.js"></script>
+  <script src="audio.js"></script>
+  <script src="bots.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
