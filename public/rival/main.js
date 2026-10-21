@@ -72,6 +72,12 @@
   }
 
   // ---- 게임(이동 테스트용 맵) ----
+  const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  let mobilePlaying = false; // 모바일은 포인터 잠금이 없어서 별도 플래그로 "플레이 중" 표시
+  const joy = { x: 0, y: 0 }; // 조이스틱 방향 (-1~1). y가 +면 뒤로
+  $('controls-hint').innerHTML = isTouch
+    ? '왼쪽 화면: 이동(끝까지 밀면 달리기) · 오른쪽 화면: 드래그로 시점 · 점프 버튼<br>폰을 <b>가로</b>로 돌려서 플레이하세요.'
+    : 'PC: WASD 이동 · 마우스 시점 · Space 점프 · Shift 달리기 · Esc 나가기';
   let started = false, renderer, scene, camera, raf, last;
   const boxes = []; // 충돌용 상자 {minX,maxX,minY,maxY,minZ,maxZ}
   const keys = {};
@@ -128,14 +134,15 @@
   }
 
   function step(dt) {
-    const run = keys['ShiftLeft'] || keys['ShiftRight'];
+    const joyMag = Math.hypot(joy.x, joy.y);
+    const run = keys['ShiftLeft'] || keys['ShiftRight'] || joyMag > 0.9; // 조이스틱 끝까지 밀면 달리기
     const speed = run ? 8 : 5;
-    let fx = 0, fz = 0;
+    let fx = joy.x, fz = joy.y;
     if (keys['KeyW']) fz -= 1;
     if (keys['KeyS']) fz += 1;
     if (keys['KeyA']) fx -= 1;
     if (keys['KeyD']) fx += 1;
-    const len = Math.hypot(fx, fz) || 1;
+    const len = Math.max(1, Math.hypot(fx, fz)); // 1보다 작으면(조이스틱 살짝) 그대로 둬서 천천히 걷기
     fx /= len; fz /= len;
     const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
     const dx = (fx * cos + fz * sin) * speed * dt;
@@ -167,7 +174,7 @@
     raf = requestAnimationFrame(loop);
     const dt = Math.min(0.05, (t - (last || t)) / 1000);
     last = t;
-    if (document.pointerLockElement) step(dt);
+    if (document.pointerLockElement || mobilePlaying) step(dt);
     camera.position.set(P.x, P.y, P.z);
     camera.rotation.order = 'YXZ';
     camera.rotation.set(P.pitch, P.yaw, 0);
@@ -186,19 +193,35 @@
       window.addEventListener('resize', resize);
     }
     Object.assign(P, { x: 0, y: EYE, z: 8, vy: 0, yaw: 0, pitch: 0 });
+    $('click-to-play').textContent = isTouch ? '화면을 터치해서 시작' : '클릭해서 시작 (Esc: 로비로)';
     $('click-to-play').classList.remove('hidden');
+    $('touch-ui').classList.toggle('hidden', !isTouch);
     last = 0;
     raf = requestAnimationFrame(loop);
   }
 
   function leaveGame() {
     cancelAnimationFrame(raf);
+    mobilePlaying = false;
+    joy.x = joy.y = 0;
+    keys['Space'] = false;
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
     if (document.pointerLockElement) document.exitPointerLock();
     enterLobby();
   }
 
   $('play-btn').onclick = startGame;
-  $('click-to-play').onclick = () => $('c').requestPointerLock();
+  $('click-to-play').onclick = () => {
+    if (!isTouch) { $('c').requestPointerLock(); return; }
+    mobilePlaying = true;
+    $('click-to-play').classList.add('hidden');
+    // 전체화면 + 가로 고정 시도 (아이폰 사파리는 막혀 있어서 실패해도 괜찮음)
+    try {
+      const req = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+      if (req) Promise.resolve(req.call(document.documentElement)).catch(() => {});
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    } catch (e) {}
+  };
   document.addEventListener('pointerlockchange', () => {
     const locked = !!document.pointerLockElement;
     if ($('game').classList.contains('hidden')) return;
@@ -217,6 +240,72 @@
     P.pitch -= e.movementY * 0.0022;
     P.pitch = Math.max(-1.5, Math.min(1.5, P.pitch));
   });
+
+  // ---- 모바일 터치 조작 ----
+  (function setupTouch() {
+    const JOY_R = 50; // 조이스틱이 최대로 기우는 거리(px)
+    const base = $('joy-base'), knob = $('joy-knob');
+    let joyId = null, joyOrigin = null, lookId = null, lookLast = null;
+    const findTouch = (list, id) => { for (const t of list) if (t.identifier === id) return t; return null; };
+
+    // 왼쪽: 손가락을 처음 댄 자리가 조이스틱 중심이 됨(떠다니는 조이스틱)
+    $('joy-zone').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (joyId !== null) return;
+      const t = e.changedTouches[0];
+      joyId = t.identifier;
+      joyOrigin = { x: t.clientX, y: t.clientY };
+      base.style.left = t.clientX + 'px';
+      base.style.top = t.clientY + 'px';
+      knob.style.transform = 'translate(0,0)';
+      base.classList.remove('hidden');
+    }, { passive: false });
+    $('joy-zone').addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = findTouch(e.changedTouches, joyId);
+      if (!t) return;
+      let dx = t.clientX - joyOrigin.x, dy = t.clientY - joyOrigin.y;
+      const d = Math.hypot(dx, dy);
+      if (d > JOY_R) { dx = dx / d * JOY_R; dy = dy / d * JOY_R; }
+      knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      joy.x = dx / JOY_R; joy.y = dy / JOY_R;
+    }, { passive: false });
+    const joyEnd = (e) => {
+      if (!findTouch(e.changedTouches, joyId)) return;
+      joyId = null; joy.x = joy.y = 0;
+      base.classList.add('hidden');
+    };
+    $('joy-zone').addEventListener('touchend', joyEnd);
+    $('joy-zone').addEventListener('touchcancel', joyEnd);
+
+    // 오른쪽: 드래그하면 시점 회전
+    $('look-zone').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (lookId !== null) return;
+      const t = e.changedTouches[0];
+      lookId = t.identifier; lookLast = { x: t.clientX, y: t.clientY };
+    }, { passive: false });
+    $('look-zone').addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = findTouch(e.changedTouches, lookId);
+      if (!t || !mobilePlaying) return;
+      P.yaw -= (t.clientX - lookLast.x) * 0.005;
+      P.pitch -= (t.clientY - lookLast.y) * 0.005;
+      P.pitch = Math.max(-1.5, Math.min(1.5, P.pitch));
+      lookLast = { x: t.clientX, y: t.clientY };
+    }, { passive: false });
+    const lookEnd = (e) => { if (findTouch(e.changedTouches, lookId)) lookId = null; };
+    $('look-zone').addEventListener('touchend', lookEnd);
+    $('look-zone').addEventListener('touchcancel', lookEnd);
+
+    // 버튼들
+    const jump = $('btn-jump');
+    jump.addEventListener('touchstart', (e) => { e.preventDefault(); keys['Space'] = true; }, { passive: false });
+    const jumpEnd = (e) => { e.preventDefault(); keys['Space'] = false; };
+    jump.addEventListener('touchend', jumpEnd, { passive: false });
+    jump.addEventListener('touchcancel', jumpEnd, { passive: false });
+    $('btn-exit').addEventListener('touchstart', (e) => { e.preventDefault(); leaveGame(); }, { passive: false });
+  })();
 
   // ---- 시작 ----
   if (myNick) {

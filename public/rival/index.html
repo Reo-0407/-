@@ -24,7 +24,7 @@
         <p>안녕하세요, <b id="lobby-nick"></b>님</p>
         <button id="play-btn" class="btn">연습장 입장 (1단계: 이동 테스트)</button>
         <button id="nick-change" class="btn ghost">닉네임 변경</button>
-        <p class="hint">PC: WASD 이동 · 마우스 시점 · Space 점프 · Shift 달리기 · Esc 나가기<br>모바일 조작은 8단계에서 추가돼요.</p>
+        <p id="controls-hint" class="hint"></p>
       </div>
       <div class="panel">
         <h2>🏆 리더보드</h2>
@@ -38,7 +38,17 @@
   <div id="game" class="hidden">
     <canvas id="c"></canvas>
     <div id="crosshair">+</div>
-    <div id="click-to-play" class="hidden">클릭해서 시작 (Esc: 로비로)</div>
+    <div id="click-to-play" class="hidden"></div>
+
+    <!-- 모바일 전용 조작 UI (터치 기기에서만 보임) -->
+    <div id="touch-ui" class="hidden">
+      <div id="joy-zone"></div>
+      <div id="look-zone"></div>
+      <div id="joy-base" class="hidden"><div id="joy-knob"></div></div>
+      <button id="btn-jump" class="tbtn">점프</button>
+      <button id="btn-exit" class="tbtn small">나가기</button>
+    </div>
+    <div id="rotate-hint">📱 폰을 가로로 돌려주세요</div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
