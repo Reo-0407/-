@@ -8,7 +8,6 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/api/rival', require('./rival-server'));
 
 // ---------------------------------------------------------------------------
 // 게임 정의 (템플릿). 세부 파라미터(목표값 등)는 라운드 시작할 때 그때그때 생성.
